@@ -1,0 +1,12 @@
+[Unit]
+Description=Roughtime service
+After=ntp.service chrony.service
+
+[Service]
+Type=simple
+Restart=always
+User=roughtime
+ExecStart=/usr/local/bin/roughtimed
+
+[Install]
+WantedBy=multi-user.target
