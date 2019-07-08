@@ -27,12 +27,13 @@ int main(int argc, char *argv[]) {
   }
 
   uint32_t nonc[16];
-  uint32_t pad[236];
-  uint8_t packet[1024];
-  uint32_t size = 1024;
+  uint32_t pad[158];
+  uint8_t packet[712];
+  uint32_t size = 712;
+  memset(pad, 0, 632);
   if (create_roughtime_packet(packet, &size, 2,
       "NONC", 64, nonc,
-      "PAD", 944, pad) != ROUGHTIME_SUCCESS) {
+      "PAD", 632, pad) != ROUGHTIME_SUCCESS) {
     fprintf(stderr, "Fail!\n");
     return 1;
   }

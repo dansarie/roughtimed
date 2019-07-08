@@ -22,10 +22,20 @@
 #include <sys/stat.h>
 #include <sys/timex.h>
 
-#define MERKLE_MAX 1024
-#define MAX_PATH_LEN 10
-/* (5 * 2 + 16 + 38 + 1 + MAX_PATH_LEN * 16) * 4 + 100 = 1000 */
-#define MAX_RESPONSE_LEN 1000
+#define MERKLE_MAX 4096
+#define MAX_PATH_LEN 12
+/*
+  Header    40
+    SREP    24
+      ROOT  32
+      MIDP   8
+      RADI   4
+    SIG     64
+    CERT   152
+    INDX     4
+    PATH   384 = 32 * MAX_PATH_LEN
+*/
+#define MAX_RESPONSE_LEN 712
 #define RECV_MAX 1024
 #define MAX_RECV_LEN 1500
 
@@ -102,13 +112,13 @@ static inline roughtime_result_t compute_merkle(uint8_t *merkle, uint32_t order)
   if (order == 0) {
     return ROUGHTIME_SUCCESS;
   }
-  uint8_t *next_merkle = merkle + 64 * (1 << order);
+  uint8_t *next_merkle = merkle + 32 * (1 << order);
   SHA512_CTX ctx;
   for (int i = 0; i < (1 << (order - 1)); i++) {
     if (SHA512_Init(&ctx) != 1
           || SHA512_Update(&ctx, "\x01", 1) != 1
-          || SHA512_Update(&ctx, merkle + 128 * i, 128) != 1
-          || SHA512_Final(next_merkle + 64 * i, &ctx) != 1) {
+          || SHA512_Update(&ctx, merkle + 64 * i, 64) != 1
+          || SHA512_Final(next_merkle + 32 * i, &ctx) != 1) {
       fprintf(stderr, "SHA512 error\n");
       return ROUGHTIME_INTERNAL_ERROR;
     }
@@ -122,17 +132,28 @@ void *response_thread(void *arg) {
   uint8_t *merkle_tree = NULL;
   roughtime_query_t *query_buf = NULL;
   uint8_t *responses = NULL;
+  struct mmsghdr *msgvec = NULL;
+  struct iovec *iov = NULL;
 
-  if (posix_memalign((void**)&merkle_tree, 32, 128 * MERKLE_MAX) != 0
+  if (posix_memalign((void**)&merkle_tree, 32, 64 * (MERKLE_MAX + 1)) != 0
       || posix_memalign((void**)&query_buf, 32, sizeof(roughtime_query_t) * MERKLE_MAX) != 0
-      || posix_memalign((void**)&responses, 32, MERKLE_MAX * MAX_RESPONSE_LEN) != 0) {
+      || posix_memalign((void**)&responses, 32, MERKLE_MAX * MAX_RESPONSE_LEN) != 0
+      || posix_memalign((void**)&msgvec, 32, sizeof(struct mmsghdr) * MERKLE_MAX) != 0
+      || posix_memalign((void**)&iov, 32, sizeof(struct iovec) * MERKLE_MAX) != 0) {
     fprintf(stderr, "Memory allocation error.\n");
     free(merkle_tree);
     free(query_buf);
     free(responses);
+    free(msgvec);
+    free(iov);
     quit = true;
     return NULL;
   }
+  memset(merkle_tree, 0, 64 * (MERKLE_MAX + 1));
+  memset(query_buf, 0, sizeof(roughtime_query_t) * MERKLE_MAX);
+  memset(responses, 0, MERKLE_MAX * MAX_RESPONSE_LEN);
+  memset(msgvec, 0, sizeof(struct mmsghdr) * MERKLE_MAX);
+  memset(iov, 0, sizeof(struct iovec) * MERKLE_MAX);
 
   while (!quit) {
     pthread_mutex_lock(&args->queue_mutex);
@@ -158,7 +179,7 @@ void *response_thread(void *arg) {
       if (SHA512_Init(&ctx) != 1
           || SHA512_Update(&ctx, "\x00", 1) != 1
           || SHA512_Update(&ctx, query_buf[i].nonc, 64) != 1
-          || SHA512_Final(merkle_tree + 64 * i, &ctx) != 1) {
+          || SHA512_Final(merkle_tree + 32 * i, &ctx) != 1) {
         sha512_error = true;
         break;
       }
@@ -168,11 +189,11 @@ void *response_thread(void *arg) {
       continue;
     }
     uint32_t merkle_size = clp2(num_queries);
-    memset(merkle_tree + 64 * num_queries, 0, (merkle_size - num_queries) * 64);
+    memset(merkle_tree + 32 * num_queries, 0, (merkle_size - num_queries) * 32);
     uint32_t merkle_order = __builtin_ctz(merkle_size);
     compute_merkle(merkle_tree, merkle_order);
     /* ROOT */
-    uint32_t *root = (uint32_t*)(merkle_tree + 64 * ((1 << (merkle_order + 1)) - 2));
+    uint32_t *root = (uint32_t*)(merkle_tree + 32 * ((1 << (merkle_order + 1)) - 2));
 
     /* MIDP */
     struct timex timex = {0};
@@ -188,11 +209,11 @@ void *response_thread(void *arg) {
     }
 
     /* SREP */
-    uint32_t srep_len = 100;
-    uint8_t srep[100];
+    uint32_t srep_len = 68;
+    uint8_t srep[68];
     roughtime_result_t res;
     if ((res = create_roughtime_packet(srep, &srep_len, 3,
-        "ROOT", 64, root,
+        "ROOT", 32, root,
         "MIDP", 8, &midp,
         "RADI", 4, &radi)) != ROUGHTIME_SUCCESS) {
       fprintf(stderr, "Error when creating SREP packet.\n");
@@ -207,8 +228,8 @@ void *response_thread(void *arg) {
     }
 
     uint32_t indx = 0;
-    uint32_t path_len = merkle_order * 64;
-    uint32_t path[MAX_PATH_LEN * 64];
+    uint32_t path_len = merkle_order * 32;
+    uint32_t path[MAX_PATH_LEN * 32];
     uint32_t response_len = MAX_RESPONSE_LEN;
     if ((res = create_roughtime_packet(responses, &response_len, 5,
         "SREP", srep_len, srep,
@@ -225,20 +246,18 @@ void *response_thread(void *arg) {
       memcpy(responses + i * response_len, responses, response_len);
     }
 
-    struct mmsghdr msgvec[MERKLE_MAX];
-    struct iovec iov[MERKLE_MAX];
-    const int index_offset = 356;
+    const int index_offset = 324;
     for (int i = 0; i < num_queries; i++) {
       /* Set index. */
       *((uint32_t*)(responses + index_offset + i * response_len)) = htole32(i);
 
       /* Copy merkle path. */
-      uint32_t path_offset = 360;
+      uint32_t path_offset = index_offset + 4;
       uint8_t *next_merkle = merkle_tree;
       for (int k = 0; k < merkle_order; k++) {
-        memcpy(responses + i * response_len + path_offset, next_merkle + 64 * ((i >> k) ^ 1), 64);
-        next_merkle = next_merkle + 64 * (1 << (merkle_order - k));
-        path_offset += 64;
+        memcpy(responses + i * response_len + path_offset, next_merkle + 32 * ((i >> k) ^ 1), 32);
+        next_merkle = next_merkle + 32 * (1 << (merkle_order - k));
+        path_offset += 32;
       }
 
       /* Prepare structs for sendmmsg. */
@@ -261,7 +280,7 @@ void *response_thread(void *arg) {
       int sent = sendmmsg(args->sock, msgvec + num_sent, to_send, 0);
       if (sent < 0) {
         if (!quit) {
-          fprintf(stderr, "Error when sending responses: %s. %u unsent responses.",
+          fprintf(stderr, "Error when sending responses: %s. %u unsent responses. ",
               strerror(errno), to_send);
         }
         break;
@@ -282,6 +301,8 @@ void *response_thread(void *arg) {
   free(merkle_tree);
   free(query_buf);
   free(responses);
+  free(msgvec);
+  free(iov);
   return NULL;
 }
 
@@ -616,7 +637,7 @@ int main(int argc, char *argv[]) {
       roughtime_result_t res;
       uint32_t offset, len;
       /* Ignore non-compliant packets and receive timeouts. */
-      if (msgvec[i].msg_len < 1024
+      if (msgvec[i].msg_len < MAX_RESPONSE_LEN
           || (res = parse_roughtime_header(buf + i * MAX_RECV_LEN, msgvec[i].msg_len, &header))
               != ROUGHTIME_SUCCESS
           || (res = get_header_tag(&header, str_to_tag("NONC"), &offset, &len))
