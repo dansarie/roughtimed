@@ -283,13 +283,19 @@ void *response_thread(void *arg) {
     /* Send responses. */
     unsigned int to_send = num_queries;
     unsigned int num_sent = 0;
+    bool retry = true;
     while (to_send > 0) {
       int sent = sendmmsg(args->sock, msgvec + num_sent, to_send, 0);
       if (sent < 0) {
-        if (!quit) {
-          fprintf(stderr, "Error when sending responses: %s. %u unsent responses. ",
-              strerror(errno), to_send);
+        if(quit) {
+          break;
         }
+        if (retry) {
+          retry = false;
+          continue;
+        }
+        fprintf(stderr, "Error when sending responses: %s. %u unsent responses. \n",
+            strerror(errno), to_send);
         break;
       }
       num_sent += sent;
