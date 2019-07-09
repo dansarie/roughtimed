@@ -247,18 +247,24 @@ void *response_thread(void *arg) {
     }
 
     const int index_offset = 324;
+    const int path_offset = index_offset + 4;
+
+    /* Set response packets' PATH tag. */
+    uint8_t *merklep = merkle_tree;
+    for (int level = 0; level < merkle_order; level++) {
+      for (int i = 0; i < 1 << (merkle_order - level); i++) {
+        int idx = (i ^ 1) << level;
+        uint8_t *responsep = responses + idx * response_len + path_offset + level * 32;
+        for (int k = 0; k < 1 << level && (idx | k) < num_queries; k++) {
+          memcpy(responsep + k * response_len, merklep, 32);
+        }
+        merklep += 32;
+      }
+    }
+
     for (int i = 0; i < num_queries; i++) {
       /* Set index. */
       *((uint32_t*)(responses + index_offset + i * response_len)) = htole32(i);
-
-      /* Copy merkle path. */
-      uint32_t path_offset = index_offset + 4;
-      uint8_t *next_merkle = merkle_tree;
-      for (int k = 0; k < merkle_order; k++) {
-        memcpy(responses + i * response_len + path_offset, next_merkle + 32 * ((i >> k) ^ 1), 32);
-        next_merkle = next_merkle + 32 * (1 << (merkle_order - k));
-        path_offset += 32;
-      }
 
       /* Prepare structs for sendmmsg. */
       iov[i].iov_base = responses + i * response_len;
