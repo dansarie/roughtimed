@@ -22,7 +22,6 @@
 #include <sys/stat.h>
 #include <sys/timex.h>
 
-#define MERKLE_MAX 4096
 #define MAX_PATH_LEN 12
 /*
   Header    40
@@ -135,11 +134,12 @@ void *response_thread(void *arg) {
   struct mmsghdr *msgvec = NULL;
   struct iovec *iov = NULL;
 
-  if (posix_memalign((void**)&merkle_tree, 32, 64 * (MERKLE_MAX + 1)) != 0
-      || posix_memalign((void**)&query_buf, 32, sizeof(roughtime_query_t) * MERKLE_MAX) != 0
-      || posix_memalign((void**)&responses, 32, MERKLE_MAX * MAX_RESPONSE_LEN) != 0
-      || posix_memalign((void**)&msgvec, 32, sizeof(struct mmsghdr) * MERKLE_MAX) != 0
-      || posix_memalign((void**)&iov, 32, sizeof(struct iovec) * MERKLE_MAX) != 0) {
+  if (posix_memalign((void**)&merkle_tree, 32, 64 * (args->max_tree_size + 1)) != 0
+      || posix_memalign((void**)&query_buf, 32, sizeof(roughtime_query_t) * args->max_tree_size)
+          != 0
+      || posix_memalign((void**)&responses, 32, args->max_tree_size * MAX_RESPONSE_LEN) != 0
+      || posix_memalign((void**)&msgvec, 32, sizeof(struct mmsghdr) * args->max_tree_size) != 0
+      || posix_memalign((void**)&iov, 32, sizeof(struct iovec) * args->max_tree_size) != 0) {
     fprintf(stderr, "Memory allocation error.\n");
     free(merkle_tree);
     free(query_buf);
@@ -149,11 +149,11 @@ void *response_thread(void *arg) {
     quit = true;
     return NULL;
   }
-  memset(merkle_tree, 0, 64 * (MERKLE_MAX + 1));
-  memset(query_buf, 0, sizeof(roughtime_query_t) * MERKLE_MAX);
-  memset(responses, 0, MERKLE_MAX * MAX_RESPONSE_LEN);
-  memset(msgvec, 0, sizeof(struct mmsghdr) * MERKLE_MAX);
-  memset(iov, 0, sizeof(struct iovec) * MERKLE_MAX);
+  memset(merkle_tree, 0, 64 * (args->max_tree_size + 1));
+  memset(query_buf, 0, sizeof(roughtime_query_t) * args->max_tree_size);
+  memset(responses, 0, args->max_tree_size * MAX_RESPONSE_LEN);
+  memset(msgvec, 0, sizeof(struct mmsghdr) * args->max_tree_size);
+  memset(iov, 0, sizeof(struct iovec) * args->max_tree_size);
 
   while (!quit) {
     pthread_mutex_lock(&args->queue_mutex);
@@ -167,7 +167,8 @@ void *response_thread(void *arg) {
     }
 
     /* Copy queries to temporary buffer and release mutex. */
-    const uint32_t num_queries = args->queuep > MERKLE_MAX ? MERKLE_MAX : args->queuep;
+    const uint32_t num_queries = args->queuep > args->max_tree_size ?
+        args->max_tree_size : args->queuep;
     memcpy(query_buf, args->queue, sizeof(roughtime_query_t) * num_queries);
     args->queuep -= num_queries;
     memmove(args->queue, args->queue + num_queries, sizeof(roughtime_query_t) * args->queuep);
@@ -435,6 +436,18 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  const char *path_len;
+  uint32_t max_tree_size = 1 << MAX_PATH_LEN;
+  if (get_config("max_path_len", &path_len) == ROUGHTIME_SUCCESS) {
+    errno = 0;
+    int max_path_len = atoi(path_len);
+    if (errno == 0 || max_path_len >= 0 || max_path_len <= MAX_PATH_LEN) {
+      max_tree_size = 1 << max_path_len;
+    } else {
+      fprintf(stderr, "Bad max_path_len in config file. Using default.\n");
+    }
+  }
+
   /* Parse and check the certificate and private key from the configuration file. */
   uint8_t cert[153];
   uint8_t priv[33];
@@ -571,6 +584,7 @@ int main(int argc, char *argv[]) {
     memset(&arguments[i], 0, sizeof(thread_arguments_t));
     arguments[i].queue_size = QUEUE_SIZE;
     arguments[i].queuep = 0;
+    arguments[i].max_tree_size = max_tree_size;
     arguments[i].sock = sock;
     arguments[i].verbose = verbose;
     memcpy(arguments[i].cert, cert, 152);

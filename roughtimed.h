@@ -22,6 +22,7 @@ typedef struct {
   uint8_t priv[256];
   uint32_t queue_size;
   uint32_t queuep;
+  uint32_t max_tree_size;
   pthread_mutex_t queue_mutex;
   pthread_cond_t queue_cond;
   int sock;
