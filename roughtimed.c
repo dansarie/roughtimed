@@ -530,14 +530,14 @@ int main(int argc, char *argv[]) {
   }
 
   /* Create and bind socket. */
-  int sock = socket(AF_INET, SOCK_DGRAM, 0);
+  int sock = socket(AF_INET6, SOCK_DGRAM, 0);
   if (sock == -1) {
     fprintf(stderr, "Error when creating socket: %s\n", strerror(errno));
     RETURN_CONF_STATS_PRIV(1);
   }
   struct sockaddr_in6 addr;
   memset(&addr, 0, sizeof(struct sockaddr_in6));
-  addr.sin6_family = AF_INET;
+  addr.sin6_family = AF_INET6;
   addr.sin6_port = htons(portnum);
   addr.sin6_addr = in6addr_any;
   if (bind(sock, (struct sockaddr*)&addr, sizeof(struct sockaddr_in6)) != 0) {
