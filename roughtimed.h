@@ -4,6 +4,8 @@
 #ifndef __ROUGHTIMED_H__
 #define __ROUGHTIMED_H__
 
+#define _GNU_SOURCE
+
 #include "roughtime-common.h"
 #include <inttypes.h>
 #include <stdbool.h>
@@ -14,6 +16,7 @@
 typedef struct {
   uint32_t nonc[16];
   struct sockaddr_in6 source;
+  struct in6_pktinfo dest;
 } __attribute__((aligned(32))) roughtime_query_t;
 
 typedef struct {

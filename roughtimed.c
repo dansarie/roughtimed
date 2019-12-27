@@ -133,19 +133,23 @@ void *response_thread(void *arg) {
   uint8_t *responses = NULL;
   struct mmsghdr *msgvec = NULL;
   struct iovec *iov = NULL;
+  uint8_t *control_buf = NULL;
+  size_t controllen = CMSG_LEN(sizeof(struct in6_pktinfo));
 
   if (posix_memalign((void**)&merkle_tree, 32, 64 * (args->max_tree_size + 1)) != 0
       || posix_memalign((void**)&query_buf, 32, sizeof(roughtime_query_t) * args->max_tree_size)
           != 0
       || posix_memalign((void**)&responses, 32, args->max_tree_size * MAX_RESPONSE_LEN) != 0
       || posix_memalign((void**)&msgvec, 32, sizeof(struct mmsghdr) * args->max_tree_size) != 0
-      || posix_memalign((void**)&iov, 32, sizeof(struct iovec) * args->max_tree_size) != 0) {
+      || posix_memalign((void**)&iov, 32, sizeof(struct iovec) * args->max_tree_size) != 0
+      || posix_memalign((void**)&control_buf, 32, controllen * args->max_tree_size) != 0) {
     fprintf(stderr, "Memory allocation error.\n");
     free(merkle_tree);
     free(query_buf);
     free(responses);
     free(msgvec);
     free(iov);
+    free(control_buf);
     quit = true;
     return NULL;
   }
@@ -274,8 +278,13 @@ void *response_thread(void *arg) {
       msgvec[i].msg_hdr.msg_namelen = sizeof(query_buf[i].source);
       msgvec[i].msg_hdr.msg_iov = iov + i;
       msgvec[i].msg_hdr.msg_iovlen = 1;
-      msgvec[i].msg_hdr.msg_control = NULL;
-      msgvec[i].msg_hdr.msg_controllen = 0;
+      msgvec[i].msg_hdr.msg_control = control_buf + controllen * i;
+      msgvec[i].msg_hdr.msg_controllen = controllen;
+      struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msgvec[i].msg_hdr);
+      cmsg->cmsg_level = IPPROTO_IPV6;
+      cmsg->cmsg_type = IPV6_PKTINFO;
+      cmsg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));
+      *(struct in6_pktinfo*)CMSG_DATA(cmsg) = query_buf[i].dest;
       msgvec[i].msg_hdr.msg_flags = 0;
       msgvec[i].msg_len = 0;
     }
@@ -316,6 +325,7 @@ void *response_thread(void *arg) {
   free(responses);
   free(msgvec);
   free(iov);
+  free(control_buf);
   return NULL;
 }
 
@@ -547,8 +557,10 @@ int main(int argc, char *argv[]) {
 
   /* Set socket receive timeout. */
   struct timeval timeout = {0, 1000}; /* 1000 microseconds. */
-  if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(struct timeval)) != 0) {
-    fprintf(stderr, "Error when setting socket timeout: %s\n", strerror(errno));
+  const int one = 1;
+  if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(struct timeval)) != 0
+      || setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &one, sizeof(int)) != 0) {
+    fprintf(stderr, "Error when changing socket settings: %s\n", strerror(errno));
     RETURN_CONF_STATS_PRIV_SOCK(1);
     return 1;
   }
@@ -637,7 +649,10 @@ int main(int argc, char *argv[]) {
   struct sockaddr_in6 sources[RECV_MAX];
   struct iovec iov[RECV_MAX];
   struct mmsghdr msgvec[RECV_MAX];
+  size_t controllen = CMSG_LEN(sizeof(struct in6_pktinfo));
+  uint8_t control_buf[controllen * RECV_MAX];
   memset(sources, 0, sizeof(struct sockaddr_in6) * RECV_MAX);
+  memset(control_buf, 0, controllen * RECV_MAX);
 
   while (!quit) {
     for (int i = 0; i < RECV_MAX; i++) {
@@ -647,8 +662,8 @@ int main(int argc, char *argv[]) {
       msgvec[i].msg_hdr.msg_namelen = sizeof(struct sockaddr_in6);
       msgvec[i].msg_hdr.msg_iov = iov + i;
       msgvec[i].msg_hdr.msg_iovlen = 1;
-      msgvec[i].msg_hdr.msg_control = NULL;
-      msgvec[i].msg_hdr.msg_controllen = 0;
+      msgvec[i].msg_hdr.msg_control = &control_buf[controllen * i];
+      msgvec[i].msg_hdr.msg_controllen = controllen;
       msgvec[i].msg_hdr.msg_flags = 0;
       msgvec[i].msg_len = 0;
     }
@@ -676,6 +691,16 @@ int main(int argc, char *argv[]) {
       }
       memcpy(&queries[num_queries].nonc, buf + offset + i * MAX_RECV_LEN, 64);
       queries[num_queries].source = sources[i];
+
+      /* Get control message with destination IP address. */
+      struct cmsghdr *cmsg;
+      for (cmsg = CMSG_FIRSTHDR(&msgvec[i].msg_hdr); cmsg != NULL;
+          cmsg = CMSG_NXTHDR(&msgvec[i].msg_hdr, cmsg)) {
+        if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_PKTINFO) {
+          queries[num_queries].dest = *(struct in6_pktinfo*)CMSG_DATA(cmsg);
+          break;
+        }
+      }
       num_queries += 1;
     }
 
