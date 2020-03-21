@@ -202,7 +202,7 @@ void *response_thread(void *arg) {
 
     /* MIDP */
     struct timex timex = {0};
-    adjtimex(&timex);
+    ntp_adjtime(&timex);
     timex.time.tv_sec += timex.tai - 10; /* Fixed 10 second offset between TAI and Unix time. */
     uint64_t midp = htole64(timeval_to_timestamp(timex.time, timex.status & STA_NANO));
 
@@ -370,7 +370,7 @@ static void do_stats(FILE *restrict stats_file, uint64_t *restrict recvcount,
     return;
   }
   struct timex timex = {0};
-  adjtimex(&timex);
+  ntp_adjtime(&timex);
   timex.time.tv_sec += timex.tai - 10; /* Fixed 10 second offset between TAI and Unix time. */
   struct tm stats_tm;
   gmtime_r(&timex.time.tv_sec, &stats_tm);
@@ -514,18 +514,20 @@ int main(int argc, char *argv[]) {
   }
 
   struct timex timex = {0};
-  adjtimex(&timex);
-  if (timex.maxerror > 1000000) {
+  int adjtime_ret = ntp_adjtime(&timex);
+  if (adjtime_ret == TIME_ERROR) {
+    fprintf(stderr, "System clock not synchronized. Waiting for time synchronization.\n");
+  } else if (timex.maxerror > 1000000) {
     fprintf(stderr, "Time error too high. Waiting for time synchronization.\n");
   }
   int time_sync_wait = 0;
-  while (timex.maxerror > 1000000) {
+  while (adjtime_ret == TIME_ERROR || timex.maxerror > 1000000) {
     if (time_sync_wait++ > 600) {
       fprintf(stderr, "Gave up waiting for time synchronization.\n");
       RETURN_CONF_STATS_PRIV(1);
     }
     usleep(100000);
-    adjtimex(&timex);
+    adjtime_ret = ntp_adjtime(&timex);
   }
 
   int portnum = 2002;
