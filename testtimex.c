@@ -5,9 +5,9 @@
 
 int main(int argc, char *argv[]) {
   struct timex t = {0};
-  int retval = adjtimex(&t);
+  int retval = ntp_adjtime(&t);
   if (retval == -1) {
-    printf("Adjtimex failed: %s\n", strerror(errno));
+    printf("ntp_adjtime failed: %s\n", strerror(errno));
     return 1;
   }
 
@@ -18,7 +18,7 @@ int main(int argc, char *argv[]) {
     case TIME_DEL:   printf("TIME_DEL\n");   break;
     case TIME_OOP:   printf("TIME_OOP\n");   break;
     case TIME_WAIT:  printf("TIME_WAIT\n");  break;
-    case TIME_ERROR: printf("TIME_EEROR\n"); break;
+    case TIME_ERROR: printf("TIME_ERROR\n"); break;
   }
   printf("maxerror: %ld\n", t.maxerror);
   printf("esterror: %ld\n", t.esterror);
