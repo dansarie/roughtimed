@@ -30,6 +30,7 @@ int main(int argc, char *argv[]) {
   printf("calcnt:   %ld\n", t.calcnt);
   printf("errcnt:   %ld\n", t.errcnt);
   printf("status:   %08x\n", t.status);
+  printf("TAI:      %d\n", t.tai);
 
   return 0;
 }
