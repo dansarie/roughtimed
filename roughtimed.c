@@ -515,6 +515,10 @@ int main(int argc, char *argv[]) {
 
   struct timex timex = {0};
   int adjtime_ret = ntp_adjtime(&timex);
+  if (timex.tai == 0) {
+    fprintf(stderr, "TAI offset not set.\n");
+    RETURN_CONF_STATS_PRIV(1);
+  }
   if (adjtime_ret == TIME_ERROR) {
     fprintf(stderr, "System clock not synchronized. Waiting for time synchronization.\n");
   } else if (timex.maxerror > 1000000) {
