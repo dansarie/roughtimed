@@ -1,5 +1,5 @@
 /* test-roughtime.c
-   Copyright (C) 2019 Marcus Dansarie <marcus@dansarie.se> */
+   Copyright (C) 2019-2020 Marcus Dansarie <marcus@dansarie.se> */
 
 #include "roughtime-common.h"
 #include <errno.h>
@@ -28,15 +28,21 @@ int main(int argc, char *argv[]) {
 
   uint32_t nonc[16];
   uint32_t pad[158];
-  uint8_t packet[712];
-  uint32_t size = 712;
+  uint8_t packet[844];
+  uint32_t size = 832;
+  uint32_t ver = 0x80000003;
   memset(pad, 0, 632);
-  if (create_roughtime_packet(packet, &size, 2,
-      "NONC", 64, nonc,
-      "PAD", 632, pad) != ROUGHTIME_SUCCESS) {
+  if (create_roughtime_packet(packet + 12, &size, 3,
+      "PAD", 740, pad,
+      "VER", 4, &ver,
+      "NONC", 64, nonc
+      ) != ROUGHTIME_SUCCESS) {
     fprintf(stderr, "Fail!\n");
     return 1;
   }
+  uint64_t roughtim = 0x4d49544847554f52;
+  memcpy(packet, &roughtim, 8);
+  memcpy(packet + 8, &size, 4);
 
   struct addrinfo hints = {0};
   hints.ai_family = AF_UNSPEC;
@@ -63,7 +69,7 @@ int main(int argc, char *argv[]) {
   }
 
   while (!quit) {
-    sendto(sock, packet, size, MSG_DONTWAIT, res->ai_addr, res->ai_addrlen);
+    sendto(sock, packet, size + 12, MSG_DONTWAIT, res->ai_addr, res->ai_addrlen);
   }
 
   return 0;

@@ -1,5 +1,5 @@
 /* roughtime-common.c
-   Copyright (C) 2019 Marcus Dansarie <marcus@dansarie.se> */
+   Copyright (C) 2019-2020 Marcus Dansarie <marcus@dansarie.se> */
 
 #include "roughtime-common.h"
 #include <assert.h>
@@ -63,17 +63,22 @@ roughtime_result_t create_roughtime_packet(uint8_t *restrict packet, uint32_t *r
   va_list ap;
   va_start(ap, num_tags);
 
+  uint32_t last_tag = 0;
   for (uint32_t i = 0; i < num_tags; i++) {
     if (i != 0) {
       header[i] = htole32(offset);
     }
-    header[num_tags + i] = htole32(str_to_tag(va_arg(ap, char*)));
+    uint32_t tag = str_to_tag(va_arg(ap, char*));
+    assert(tag > last_tag); /* Assertion fails if tags are not sorted. */
+    last_tag = tag;
+    header[num_tags + i] = htole32(tag);
     uint32_t field_size = va_arg(ap, uint32_t);
     if (field_size % 4 != 0 || header_len + offset + field_size > *size) {
       va_end(ap);
       return ROUGHTIME_BAD_ARGUMENT;
     }
     uint32_t *ptr = va_arg(ap, uint32_t*);
+    assert(header_len + offset + field_size <= *size);
     memcpy(packet + header_len + offset, ptr, field_size);
     offset += field_size;
   }
@@ -109,16 +114,12 @@ roughtime_result_t parse_roughtime_header(const uint8_t *restrict packet, uint32
       header->lengths[i - 1] = header->offsets[i] - header->offsets[i - 1];
     }
     header->tags[i] = le32toh(((uint32_t*)packet)[i + header->num_tags]);
-  }
-  header->lengths[header->num_tags - 1] = packet_len - header->offsets[header->num_tags - 1];
-  /* Check for duplicate tags. */
-  for (int i = 0; i < header->num_tags; i++) {
-    for (int k = i + 1; k < header->num_tags; k++) {
-      if (header->tags[i] == header->tags[k]) {
-        return ROUGHTIME_FORMAT_ERROR;
-      }
+    /* Check for unsorted or duplicate tags. */
+    if (i > 0 && header->tags[i] <= header->tags[i - 1]) {
+      return ROUGHTIME_FORMAT_ERROR;
     }
   }
+  header->lengths[header->num_tags - 1] = packet_len - header->offsets[header->num_tags - 1];
   return ROUGHTIME_SUCCESS;
 }
 

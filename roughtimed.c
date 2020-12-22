@@ -1,5 +1,5 @@
 /* roughtimed.c
-   Copyright (C) 2019 Marcus Dansarie <marcus@dansarie.se> */
+   Copyright (C) 2019-2020 Marcus Dansarie <marcus@dansarie.se> */
 
 #define _GNU_SOURCE
 
@@ -8,6 +8,7 @@
 
 #include <endian.h>
 #include <errno.h>
+#include <fenv.h>
 #include <math.h>
 #include <pthread.h>
 #include <signal.h>
@@ -24,18 +25,23 @@
 
 #define MAX_PATH_LEN 12
 /*
-  Header    40
-    SREP    24
-      ROOT  32
-      MIDP   8
-      RADI   4
+  Header    56 = 7 * 8
     SIG     64
+    VER      4
+    NONC    64
+    PATH   384 = 32 * MAX_PATH_LEN
+    SREP    32 = 4 * 8
+      DTAI   4
+      RADI   4
+      MIDP   8
+      ROOT  32
     CERT   152
     INDX     4
-    PATH   384 = 32 * MAX_PATH_LEN
 */
-#define MAX_RESPONSE_LEN 712
+#define MAX_RESPONSE_LEN 808
+/* Maximum number of messages to receive at once. */
 #define RECV_MAX 1024
+/* Maximum allowed length of received message. */
 #define MAX_RECV_LEN 1500
 
 /* The RETURN macros simplify clearing and freeing resources on early return on error from main. */
@@ -86,7 +92,7 @@ static inline uint64_t timeval_to_timestamp(struct timeval tv, bool nano) {
   uint64_t usecs = (uint64_t)tm.tm_hour * 3600000000 + (uint64_t)tm.tm_min * 60000000
       + (uint64_t)tm.tm_sec * 1000000;
   if (nano) {
-    usecs += round(tv.tv_usec / 1000.0);
+    usecs += nearbyint(tv.tv_usec / 1000.0);
   } else {
     usecs += tv.tv_usec;
   }
@@ -115,9 +121,9 @@ static inline roughtime_result_t compute_merkle(uint8_t *merkle, uint32_t order)
   SHA512_CTX ctx;
   for (int i = 0; i < (1 << (order - 1)); i++) {
     if (SHA512_Init(&ctx) != 1
-          || SHA512_Update(&ctx, "\x01", 1) != 1
-          || SHA512_Update(&ctx, merkle + 64 * i, 64) != 1
-          || SHA512_Final(next_merkle + 32 * i, &ctx) != 1) {
+        || SHA512_Update(&ctx, "\x01", 1) != 1
+        || SHA512_Update(&ctx, merkle + 64 * i, 64) != 1
+        || SHA512_Final(next_merkle + 32 * i, &ctx) != 1) {
       fprintf(stderr, "SHA512 error\n");
       return ROUGHTIME_INTERNAL_ERROR;
     }
@@ -135,6 +141,8 @@ void *response_thread(void *arg) {
   struct iovec *iov = NULL;
   uint8_t *control_buf = NULL;
   size_t controllen = CMSG_LEN(sizeof(struct in6_pktinfo));
+
+  fesetround(FE_TONEAREST);
 
   if (posix_memalign((void**)&merkle_tree, 32, 64 * (args->max_tree_size + 1)) != 0
       || posix_memalign((void**)&query_buf, 32, sizeof(roughtime_query_t) * args->max_tree_size)
@@ -214,13 +222,18 @@ void *response_thread(void *arg) {
     }
 
     /* SREP */
-    uint32_t srep_len = 68;
-    uint8_t srep[68];
+    uint32_t srep_len = 140;
+    uint8_t srep[140];
     roughtime_result_t res;
-    if ((res = create_roughtime_packet(srep, &srep_len, 3,
-        "ROOT", 32, root,
+    uint32_t tai = timex.tai;
+    if (timex.tai < 0) {
+      tai = 0x80000000 | -timex.tai;
+    }
+    if ((res = create_roughtime_packet(srep, &srep_len, 4,
+        "DTAI", 4, &tai,
+        "RADI", 4, &radi,
         "MIDP", 8, &midp,
-        "RADI", 4, &radi)) != ROUGHTIME_SUCCESS) {
+        "ROOT", 32, root)) != ROUGHTIME_SUCCESS) {
       fprintf(stderr, "Error when creating SREP packet.\n");
       continue;
     }
@@ -232,16 +245,20 @@ void *response_thread(void *arg) {
       continue;
     }
 
+    uint32_t ver = 0x80000003;
+    uint8_t nonc[64] = {0};
     uint32_t indx = 0;
     uint32_t path_len = merkle_order * 32;
     uint32_t path[MAX_PATH_LEN * 32];
     uint32_t response_len = MAX_RESPONSE_LEN;
-    if ((res = create_roughtime_packet(responses, &response_len, 5,
-        "SREP", srep_len, srep,
+    if ((res = create_roughtime_packet(responses, &response_len, 7,
         "SIG", 64, srep_sig,
+        "VER", 4, &ver,
+        "NONC", 64, nonc,
+        "PATH", path_len, path,
+        "SREP", srep_len, srep,
         "CERT", 152, args->cert,
-        "INDX", 4, &indx,
-        "PATH", path_len, path)) != ROUGHTIME_SUCCESS) {
+        "INDX", 4, &indx)) != ROUGHTIME_SUCCESS) {
       fprintf(stderr, "Error when creating response packet.\n");
       continue;
     }
@@ -251,8 +268,9 @@ void *response_thread(void *arg) {
       memcpy(responses + i * response_len, responses, response_len);
     }
 
-    const int index_offset = 324;
-    const int path_offset = index_offset + 4;
+    const int nonc_offset = 7 * 8 + 64 + 4;
+    const int path_offset = nonc_offset + 64;
+    const int index_offset = path_offset + path_len + srep_len + 152;
 
     /* Set response packets' PATH tag. */
     uint8_t *merklep = merkle_tree;
@@ -268,8 +286,10 @@ void *response_thread(void *arg) {
     }
 
     for (int i = 0; i < num_queries; i++) {
-      /* Set index. */
-      *((uint32_t*)(responses + index_offset + i * response_len)) = htole32(i);
+      /* Set NONC. */
+      memcpy(responses + i * response_len + nonc_offset, query_buf[i].nonc, 64);
+      /* Set INDX. */
+      *((uint32_t*)(responses + i * response_len + index_offset)) = htole32(i);
 
       /* Prepare structs for sendmmsg. */
       iov[i].iov_base = responses + i * response_len;
@@ -498,7 +518,7 @@ int main(int argc, char *argv[]) {
   }
 
   /* Set a timezone that respects leap seconds. */
-  if (setenv("TZ", "right/UCT", 1) != 0) {
+  if (setenv("TZ", "right/UTC", 1) != 0) {
     fprintf(stderr, "Error setting TZ environment variable.\n");
     RETURN_CONF_STATS_PRIV(1);
   }
@@ -515,10 +535,6 @@ int main(int argc, char *argv[]) {
 
   struct timex timex = {0};
   int adjtime_ret = ntp_adjtime(&timex);
-  if (timex.tai == 0) {
-    fprintf(stderr, "TAI offset not set.\n");
-    RETURN_CONF_STATS_PRIV(1);
-  }
   if (adjtime_ret == TIME_ERROR) {
     fprintf(stderr, "System clock not synchronized. Waiting for time synchronization.\n");
   } else if (timex.maxerror > 1000000) {
@@ -532,6 +548,10 @@ int main(int argc, char *argv[]) {
     }
     usleep(100000);
     adjtime_ret = ntp_adjtime(&timex);
+  }
+  if (timex.tai == 0) {
+    fprintf(stderr, "TAI offset not set.\n");
+    RETURN_CONF_STATS_PRIV(1);
   }
 
   int portnum = 2002;
@@ -681,21 +701,23 @@ int main(int argc, char *argv[]) {
     int num_queries = 0;
     for (int i = 0; i < received; i++) {
       roughtime_header_t header;
-      roughtime_result_t res;
-      uint32_t offset, len;
+      uint32_t ver_offset, nonc_offset, len;
       /* Ignore non-compliant packets and receive timeouts. */
       if (msgvec[i].msg_len < MAX_RESPONSE_LEN
-          || (res = parse_roughtime_header(buf + i * MAX_RECV_LEN, msgvec[i].msg_len, &header))
+          || le64toh(*(uint64_t*)(buf + i * MAX_RECV_LEN)) != 0x4d49544847554f52 /* ROUGHTIM */
+          || le32toh(*(uint32_t*)(buf + i * MAX_RECV_LEN + 8)) != msgvec[i].msg_len - 12
+          || parse_roughtime_header(buf + i * MAX_RECV_LEN + 12, msgvec[i].msg_len - 12, &header)
               != ROUGHTIME_SUCCESS
-          || (res = get_header_tag(&header, str_to_tag("NONC"), &offset, &len))
-              != ROUGHTIME_SUCCESS
+          || get_header_tag(&header, str_to_tag("VER"), &ver_offset, &len) != ROUGHTIME_SUCCESS
+          || len == 0
+          || get_header_tag(&header, str_to_tag("NONC"), &nonc_offset, &len) != ROUGHTIME_SUCCESS
           || len != 64) {
         if (msgvec[i].msg_len > 0) {
           badcount += 1;
         }
         continue;
       }
-      memcpy(&queries[num_queries].nonc, buf + offset + i * MAX_RECV_LEN, 64);
+      memcpy(&queries[num_queries].nonc, buf + i * MAX_RECV_LEN + nonc_offset + 12, 64);
       queries[num_queries].source = sources[i];
 
       /* Get control message with destination IP address. */

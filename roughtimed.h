@@ -1,5 +1,5 @@
 /* roughtimed.h
-   Copyright (C) 2019 Marcus Dansarie <marcus@dansarie.se> */
+   Copyright (C) 2019-2020 Marcus Dansarie <marcus@dansarie.se> */
 
 #ifndef __ROUGHTIMED_H__
 #define __ROUGHTIMED_H__
@@ -14,7 +14,7 @@
 #define QUEUE_SIZE 16384
 
 typedef struct {
-  uint32_t nonc[16];
+  uint8_t nonc[64];
   struct sockaddr_in6 source;
   struct in6_pktinfo dest;
 } __attribute__((aligned(32))) roughtime_query_t;

@@ -1,5 +1,5 @@
 /* roughtime-common.h
-   Copyright (C) 2019 Marcus Dansarie <marcus@dansarie.se> */
+   Copyright (C) 2019-2020 Marcus Dansarie <marcus@dansarie.se> */
 
 #ifndef __ROUGHTIME_COMMON_H__
 #define __ROUGHTIME_COMMON_H__
@@ -50,7 +50,7 @@ uint32_t str_to_tag(const char *str);
    num_tags    Number of tags in the packet.
 
    Three varargs for each tag:
-   tag         A string with the tag name.
+   tag         A string with the tag name. Tags must be sorted by numeric value.
    field_size  Size (in bytes) of the tag data as a uint32_t. Must be divisible by 4.
    ptr         A pointer to the tag data. */
 roughtime_result_t create_roughtime_packet(uint8_t *restrict packet, uint32_t *restrict size,

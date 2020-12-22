@@ -1,5 +1,5 @@
 /* roughtimed-keytool.c
-   Copyright (C) 2019 Marcus Dansarie <marcus@dansarie.se> */
+   Copyright (C) 2019-2020 Marcus Dansarie <marcus@dansarie.se> */
 
 #include "roughtime-common.h"
 
@@ -409,8 +409,8 @@ roughtime_result_t gendele() {
   uint8_t cert_packet[152];
   packet_size = 152;
   if ((res = create_roughtime_packet(cert_packet, &packet_size, 2,
-      "DELE", 72, dele_packet,
-      "SIG", 64, sig)) != ROUGHTIME_SUCCESS) {
+      "SIG", 64, sig,
+      "DELE", 72, dele_packet)) != ROUGHTIME_SUCCESS) {
     fprintf(stderr, "Error when creating CERT packet.\n");
     explicit_bzero(dele_priv, KEYLEN);
     explicit_bzero(cert_packet, 152);
