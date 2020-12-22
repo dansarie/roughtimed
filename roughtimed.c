@@ -122,7 +122,7 @@ static roughtime_result_t get_leap_events(const char *leap_second_file, uint32_t
   while (getline(&line, &lsize, fp) >= 0) {
     uint64_t time;
     int tai;
-    if (sscanf(line, "%lu %d", &time, &tai) == 2) {
+    if (sscanf(line, "%" PRIu64 "%d", &time, &tai) == 2) {
       if (bufp == 1000) {
         fprintf(stderr, "Warning: more than 1000 events in leap second file!\n");
         memmove(evtbuf, evtbuf + 1, sizeof(uint32_t) * 999);
@@ -134,7 +134,7 @@ static roughtime_result_t get_leap_events(const char *leap_second_file, uint32_t
       }
       tailast = tai;
       bufp += 1;
-    } else if (sscanf(line, "#@ %lu", &time) == 1) {
+    } else if (sscanf(line, "#@ %" PRIu64, &time) == 1) {
       *expires = time / 86400 + 15020;
     }
   }
