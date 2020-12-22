@@ -25,20 +25,22 @@
 
 #define MAX_PATH_LEN 12
 /*
+  Header    12
   Header    56 = 7 * 8
     SIG     64
     VER      4
     NONC    64
     PATH   384 = 32 * MAX_PATH_LEN
-    SREP    32 = 4 * 8
+    SREP    40 = 5 * 8
       DTAI   4
       RADI   4
+      LEAP  12
       MIDP   8
       ROOT  32
     CERT   152
     INDX     4
 */
-#define MAX_RESPONSE_LEN 808
+#define MAX_RESPONSE_LEN 840
 /* Maximum number of messages to receive at once. */
 #define RECV_MAX 1024
 /* Maximum allowed length of received message. */
@@ -79,6 +81,75 @@ bool quit = false; /* Set to quit by the signal handler to indicate that all thr
 void signal_handler(int signal) {
   fprintf(stderr, "Caught signal.\n");
   quit = true;
+}
+
+
+/* Qsort compare function used by get_leap_events. */
+static int compare_leap(const void *e1, const void *e2) {
+  uint32_t evt1 = *((uint32_t*)e1) & 0x7fffffff;
+  uint32_t evt2 = *((uint32_t*)e2) & 0x7fffffff;
+  if (evt1 > evt2) {
+    return -1;
+  }
+  if (evt2 > evt1) {
+    return 1;
+  }
+  return 0;
+}
+
+/* Gets a list of leap second events from the system leap second file.
+   leap_second_file - path to file.
+   events           - return buffer.
+   num_events       - buffer size. Set to number of returned items.
+   expires          - MJD of leap second file expiry. */
+static roughtime_result_t get_leap_events(const char *leap_second_file, uint32_t *events,
+    int *num_events, uint32_t *expires) {
+  if (leap_second_file == NULL || events == NULL || num_events == NULL || expires == NULL) {
+    return ROUGHTIME_BAD_ARGUMENT;
+  }
+
+  FILE *fp = fopen(leap_second_file, "r");
+  if (fp == NULL) {
+    return ROUGHTIME_FILE_ERROR;
+  }
+
+  char *line = NULL;
+  size_t lsize = 0;
+  int tailast = 0;
+  uint32_t evtbuf[1000];
+  int bufp = 0;
+  *expires = 0;
+  while (getline(&line, &lsize, fp) >= 0) {
+    uint64_t time;
+    int tai;
+    if (sscanf(line, "%lu %d", &time, &tai) == 2) {
+      if (bufp == 1000) {
+        fprintf(stderr, "Warning: more than 1000 events in leap second file!\n");
+        memmove(evtbuf, evtbuf + 1, sizeof(uint32_t) * 999);
+        bufp = 999;
+      }
+      evtbuf[bufp] = time / 86400 + 15020;
+      if (tai < tailast) {
+        evtbuf[bufp] |= 0x80000000;
+      }
+      tailast = tai;
+      bufp += 1;
+    } else if (sscanf(line, "#@ %lu", &time) == 1) {
+      *expires = time / 86400 + 15020;
+    }
+  }
+  free(line);
+  fclose(fp);
+  qsort(evtbuf, bufp, sizeof(uint32_t), compare_leap);
+  if (*num_events > bufp) {
+    *num_events = bufp;
+  }
+
+  for (int i = 0; i < *num_events; i++) {
+    events[i] = evtbuf[i];
+  }
+
+  return ROUGHTIME_SUCCESS;
 }
 
 /* Converts a timeval struct to a Roughtime timestamp.
@@ -141,6 +212,10 @@ void *response_thread(void *arg) {
   struct iovec *iov = NULL;
   uint8_t *control_buf = NULL;
   size_t controllen = CMSG_LEN(sizeof(struct in6_pktinfo));
+
+  uint32_t leap_events[3];
+  int num_leap_events = 0;
+  time_t last_leap_update = 0;
 
   fesetround(FE_TONEAREST);
 
@@ -212,7 +287,9 @@ void *response_thread(void *arg) {
     struct timex timex = {0};
     ntp_adjtime(&timex);
     timex.time.tv_sec += timex.tai - 10; /* Fixed 10 second offset between TAI and Unix time. */
-    uint64_t midp = htole64(timeval_to_timestamp(timex.time, timex.status & STA_NANO));
+    uint64_t midp = timeval_to_timestamp(timex.time, timex.status & STA_NANO);
+    uint32_t mjd = midp >> 40;
+    midp = htole64(midp);
 
     /* RADI */
     uint32_t radi = htole32(timex.maxerror);
@@ -225,13 +302,35 @@ void *response_thread(void *arg) {
     uint32_t srep_len = 140;
     uint8_t srep[140];
     roughtime_result_t res;
+
+    /* DTAI */
     uint32_t tai = timex.tai;
     if (timex.tai < 0) {
       tai = 0x80000000 | -timex.tai;
     }
-    if ((res = create_roughtime_packet(srep, &srep_len, 4,
+    tai = htole32(tai);
+
+    /* LEAP */
+    if (args->leap_file_path != NULL && labs(timex.time.tv_sec - last_leap_update) > 60) {
+      last_leap_update = timex.time.tv_sec;
+      num_leap_events = 3;
+      uint32_t leap_events_expire = 0;
+      if (get_leap_events(args->leap_file_path, leap_events, &num_leap_events,
+          &leap_events_expire) != ROUGHTIME_SUCCESS) {
+        fprintf(stderr, "Error when reading leap second file.\n");
+        num_leap_events = 0;
+      } else if (leap_events_expire <= mjd) {
+        num_leap_events = 0;
+      }
+      for (int i = 0; i < num_leap_events; i++) {
+        leap_events[i] = htole32(leap_events[i]);
+      }
+    }
+
+    if ((res = create_roughtime_packet(srep, &srep_len, 5,
         "DTAI", 4, &tai,
         "RADI", 4, &radi,
+        "LEAP", 4 * num_leap_events, leap_events,
         "MIDP", 8, &midp,
         "ROOT", 32, root)) != ROUGHTIME_SUCCESS) {
       fprintf(stderr, "Error when creating SREP packet.\n");
@@ -245,7 +344,7 @@ void *response_thread(void *arg) {
       continue;
     }
 
-    uint32_t ver = 0x80000003;
+    uint32_t ver = htole32(0x80000003);
     uint8_t nonc[64] = {0};
     uint32_t indx = 0;
     uint32_t path_len = merkle_order * 32;
@@ -472,6 +571,17 @@ int main(int argc, char *argv[]) {
     }
   }
 
+  const char *leap_file_path;
+  if (get_config("leap", &leap_file_path) == ROUGHTIME_SUCCESS) {
+    FILE *leap_file = NULL;
+    if ((leap_file = fopen(leap_file_path, "r")) == NULL) {
+      fprintf(stderr, "Error when reading leap second file.\n");
+      RETURN_CONF(1);
+    } else {
+      fclose(leap_file);
+    }
+  }
+
   const char *path_len;
   uint32_t max_tree_size = 1 << MAX_PATH_LEN;
   if (get_config("max_path_len", &path_len) == ROUGHTIME_SUCCESS) {
@@ -631,6 +741,7 @@ int main(int argc, char *argv[]) {
     arguments[i].max_tree_size = max_tree_size;
     arguments[i].sock = sock;
     arguments[i].verbose = verbose;
+    arguments[i].leap_file_path = leap_file_path;
     memcpy(arguments[i].cert, cert, 152);
     memcpy(arguments[i].priv, priv, 32);
     pthread_mutex_init(&arguments[i].queue_mutex, NULL);

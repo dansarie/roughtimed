@@ -30,6 +30,7 @@ typedef struct {
   pthread_cond_t queue_cond;
   int sock;
   bool verbose;
+  const char *leap_file_path;
 } thread_arguments_t;
 
 #endif /* __ROUGHTIMED_H__ */
