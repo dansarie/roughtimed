@@ -107,7 +107,7 @@ roughtime_result_t parse_roughtime_header(const uint8_t *restrict packet, uint32
       header->offsets[i] = header_len;
     } else {
       header->offsets[i] = le32toh(((uint32_t*)packet)[i]) + header_len;
-      if (header->offsets[i] % 4 != 0 || header->offsets[i] <= header->offsets[i - 1]
+      if (header->offsets[i] % 4 != 0 || header->offsets[i] < header->offsets[i - 1]
           || header->offsets[i] > packet_len) {
         return ROUGHTIME_FORMAT_ERROR;
       }
