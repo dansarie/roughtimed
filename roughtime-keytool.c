@@ -207,11 +207,27 @@ bool validate_date(int year, int month, int day, int *yday) {
 /* Prompts the user to enter a date, gets it from stdin, validates it and returns the corresponding
        modified julian date.
    mjd - will hold the modified julian date of the entered date. */
-roughtime_result_t get_date(uint32_t *mjd) {
+roughtime_result_t get_start_date(uint32_t *mjd) {
   if (mjd == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
-  printf("Enter date (YYYY-MM-DD): ");
+  printf("Enter start date (YYYY-MM-DD): ");
+  fflush(stdout);
+  int year, month, day, yday;
+  if (scanf("%d-%d-%d", &year, &month, &day) != 3
+      || !validate_date(year, month, day, &yday)) {
+    fprintf(stderr, "Bad date format.\n");
+    return ROUGHTIME_FORMAT_ERROR;
+  }
+  *mjd = 51544 + (year - 2000) * 365 + (year - 2001) / 4 + yday;
+  return ROUGHTIME_SUCCESS;
+}
+
+roughtime_result_t get_end_date(uint32_t *mjd) {
+  if (mjd == NULL) {
+    return ROUGHTIME_BAD_ARGUMENT;
+  }
+  printf("Enter end date (YYYY-MM-DD): ");
   fflush(stdout);
   int year, month, day, yday;
   if (scanf("%d-%d-%d", &year, &month, &day) != 3
@@ -357,8 +373,8 @@ roughtime_result_t gendele() {
   roughtime_result_t res;
   /* Prompt user for private long-term key and validity time. */
   if ((res = get_key("Enter long-term private key:", priv)) != ROUGHTIME_SUCCESS
-      || (res = get_date(&mjd1)) != ROUGHTIME_SUCCESS
-      || (res = get_date(&mjd2)) != ROUGHTIME_SUCCESS) {
+      || (res = get_start_date(&mjd1)) != ROUGHTIME_SUCCESS
+      || (res = get_end_date(&mjd2)) != ROUGHTIME_SUCCESS) {
     explicit_bzero(priv, KEYLEN);
     return res;
   }
