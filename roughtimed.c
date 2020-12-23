@@ -349,8 +349,8 @@ void *response_thread(void *arg) {
     uint32_t indx = 0;
     uint32_t path_len = merkle_order * 32;
     uint32_t path[MAX_PATH_LEN * 32];
-    uint32_t response_len = MAX_RESPONSE_LEN;
-    if ((res = create_roughtime_packet(responses, &response_len, 7,
+    uint32_t response_len = MAX_RESPONSE_LEN - 12;
+    if ((res = create_roughtime_packet(responses + 12, &response_len, 7,
         "SIG", 64, srep_sig,
         "VER", 4, &ver,
         "NONC", 64, nonc,
@@ -362,14 +362,33 @@ void *response_thread(void *arg) {
       continue;
     }
 
+    /* Get value offsets. */
+    roughtime_header_t res_header;
+    uint32_t nonc_offset, nonc_len, path_offset, indx_offset, indx_len;
+    if (parse_roughtime_header(responses + 12, response_len, &res_header) != ROUGHTIME_SUCCESS
+        || get_header_tag(&res_header, str_to_tag("NONC"), &nonc_offset, &nonc_len)
+            != ROUGHTIME_SUCCESS
+        || get_header_tag(&res_header, str_to_tag("PATH"), &path_offset, &path_len)
+            != ROUGHTIME_SUCCESS
+        || get_header_tag(&res_header, str_to_tag("INDX"), &indx_offset, &indx_len)
+            != ROUGHTIME_SUCCESS) {
+      fprintf(stderr, "Error when creating response packet.\n");
+      continue;
+    }
+    nonc_offset += 12;
+    path_offset += 12;
+    indx_offset += 12;
+
+    /* Create packet header. */
+    *((uint64_t*)responses) = htole64(0x4d49544847554f52);
+    *((uint32_t*)(responses + 8)) = htole32(response_len);
+    response_len += 12;
+
+
     /* Create multiple copies of template response packet. */
     for (int i = 1; i < num_queries; i++) {
       memcpy(responses + i * response_len, responses, response_len);
     }
-
-    const int nonc_offset = 7 * 8 + 64 + 4;
-    const int path_offset = nonc_offset + 64;
-    const int index_offset = path_offset + path_len + srep_len + 152;
 
     /* Set response packets' PATH tag. */
     uint8_t *merklep = merkle_tree;
@@ -388,7 +407,7 @@ void *response_thread(void *arg) {
       /* Set NONC. */
       memcpy(responses + i * response_len + nonc_offset, query_buf[i].nonc, 64);
       /* Set INDX. */
-      *((uint32_t*)(responses + i * response_len + index_offset)) = htole32(i);
+      *((uint32_t*)(responses + i * response_len + indx_offset)) = htole32(i);
 
       /* Prepare structs for sendmmsg. */
       iov[i].iov_base = responses + i * response_len;
