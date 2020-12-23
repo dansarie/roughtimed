@@ -191,7 +191,7 @@ bool validate_date(int year, int month, int day, int *yday) {
   if (year % 4 == 0) {
     days[2] = 29;
   }
-  if (day > days[month]) {
+  if (day < 1 || day > days[month]) {
     return false;
   }
   if (yday != NULL) {
