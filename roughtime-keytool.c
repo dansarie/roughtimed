@@ -367,8 +367,8 @@ roughtime_result_t gendele() {
     explicit_bzero(priv, KEYLEN);
     return ROUGHTIME_FORMAT_ERROR;
   }
-  uint64_t mint = (uint64_t)mjd1 << 40;
-  uint64_t maxt = (uint64_t)mjd2 << 40;
+  uint64_t mint = htole64((uint64_t)mjd1 << 40);
+  uint64_t maxt = htole64((uint64_t)mjd2 << 40);
 
   /* Generate a delegate private key. */
   uint8_t dele_priv[KEYLEN];
