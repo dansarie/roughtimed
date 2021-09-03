@@ -1,4 +1,5 @@
 # roughtimed
+[![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 ## Dependencies
 
@@ -21,7 +22,7 @@ make
 * Run `./roughtime-keytool dele` to generate a certificate signed by the long-term private key.
 * Update the template roughtimed.conf to with the cert packet and private key returned by `./roughtime-keytool dele`.
 * Set the stats, leap, threads, and max_path_len variables in roughtimed.conf as suitable.
-* Ensure roughtimed.conf is not world-readable or world-writable: `chmod 700 roughtimed.conf`.
+* Ensure roughtimed.conf is not world-readable or world-writable: `chmod 600 roughtimed.conf`.
 
 ## Run
 
