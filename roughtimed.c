@@ -1,5 +1,5 @@
 /* roughtimed.c
-   Copyright (C) 2019-2020 Marcus Dansarie <marcus@dansarie.se> */
+   Copyright (C) 2019-2021 Marcus Dansarie <marcus@dansarie.se> */
 
 #define _GNU_SOURCE
 
@@ -119,12 +119,16 @@ static roughtime_result_t get_leap_events(const char *leap_second_file, uint32_t
   uint32_t evtbuf[1000];
   int bufp = 0;
   *expires = 0;
+  bool printed_err = false;
   while (getline(&line, &lsize, fp) >= 0) {
     uint64_t time;
     int tai;
     if (sscanf(line, "%" PRIu64 "%d", &time, &tai) == 2) {
       if (bufp == 1000) {
-        fprintf(stderr, "Warning: more than 1000 events in leap second file!\n");
+        if (!printed_err) {
+          fprintf(stderr, "Warning: more than 1000 events in leap second file!\n");
+          printed_err = true;
+        }
         memmove(evtbuf, evtbuf + 1, sizeof(uint32_t) * 999);
         bufp = 999;
       }
