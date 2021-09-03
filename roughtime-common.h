@@ -1,5 +1,5 @@
 /* roughtime-common.h
-   Copyright (C) 2019-2020 Marcus Dansarie <marcus@dansarie.se> */
+   Copyright (C) 2019-2021 Marcus Dansarie <marcus@dansarie.se> */
 
 #ifndef __ROUGHTIME_COMMON_H__
 #define __ROUGHTIME_COMMON_H__
@@ -10,6 +10,30 @@
 /* Ceiling division: ceil(N/D). */
 #define CEIL_DIV(N, D) (((N) + (D) - 1) / (D))
 
+/* If C is true, the macro sets err = E, jumps to the function's error label, and prints the
+   specified error message.
+   C - conditional, jump to error if true.
+   E - return value/error code. A member of sentinel_result_t.
+   M - a string with an error message. */
+#define RETURN_IF(C, E, M)\
+if (C) {\
+  fprintf(stderr, M);\
+  fprintf(stderr, "\n");\
+  err = E;\
+  goto error;\
+}
+
+/* If E is not ROUGHTIME_SUCCESS, the macro sets err = E, jumps to the function's error label, and
+   prints the specified error message to stderr.
+   E - return_value/error code. A member of roughtime_result_t.
+   M - a string with an error message. */
+#define RETURN_ON_ERROR(E, M)\
+if (E != ROUGHTIME_SUCCESS) {\
+  err = E;\
+  fprintf(stderr, M);\
+  goto error;\
+}
+
 typedef enum {
   ROUGHTIME_SUCCESS = 0,
   ROUGHTIME_BAD_ARGUMENT,
@@ -18,7 +42,8 @@ typedef enum {
   ROUGHTIME_QUEUE_FULL,
   ROUGHTIME_FILE_ERROR,
   ROUGHTIME_BAD_SIGNATURE,
-  ROUGHTIME_NOT_FOUND
+  ROUGHTIME_NOT_FOUND,
+  ROUGHTIME_MEMORY_ERROR
 } roughtime_result_t;
 
 #define ROUGHTIME_HEADER_MAX_TAGS 20

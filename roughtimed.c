@@ -46,43 +46,12 @@
 /* Maximum allowed length of received message. */
 #define MAX_RECV_LEN 1500
 
-/* The RETURN macros simplify clearing and freeing resources on early return on error from main. */
-#define RETURN_CONF(x)\
-  clear_config();\
-  return x;
-
-#define RETURN_CONF_STATS_PRIV(x)\
-  explicit_bzero(cert, 153);\
-  explicit_bzero(priv, 33);\
-  fclose(stats_file);\
-  clear_config();\
-  return x;
-
-#define RETURN_CONF_STATS_PRIV_SOCK(x)\
-  close(sock);\
-  explicit_bzero(cert, 153);\
-  explicit_bzero(priv, 33);\
-  fclose(stats_file);\
-  clear_config();\
-  return x;
-
-#define RETURN_CONF_STATS_PRIV_SOCK_ARGS(x)\
-  explicit_bzero(arguments, sizeof(thread_arguments_t) * num_response_threads);\
-  free(arguments);\
-  close(sock);\
-  explicit_bzero(cert, 153);\
-  explicit_bzero(priv, 33);\
-  fclose(stats_file);\
-  clear_config();\
-  return x;
-
 bool quit = false; /* Set to quit by the signal handler to indicate that all threads should quit. */
 
 void signal_handler(int signal) {
   fprintf(stderr, "Caught signal.\n");
   quit = true;
 }
-
 
 /* Qsort compare function used by get_leap_events. */
 static int compare_leap(const void *e1, const void *e2) {
@@ -537,6 +506,17 @@ static void do_stats(FILE *restrict stats_file, uint64_t *restrict recvcount,
 
 int main(int argc, char *argv[]) {
 
+  roughtime_result_t err = ROUGHTIME_SUCCESS;
+  pthread_t *threads = NULL;
+  thread_arguments_t *arguments = NULL;
+  uint8_t *control_buf = NULL;
+  int sock = -1;
+  long num_response_threads = 0;
+  uint8_t cert[153];
+  uint8_t priv[33];
+  FILE *stats_file = NULL;
+  FILE *leap_file = NULL;
+
   /* Parse command line options. */
   char config_file_name[1000];
   strcpy(config_file_name, "/etc/roughtimed.conf");
@@ -545,10 +525,7 @@ int main(int argc, char *argv[]) {
   while ((optchar = getopt(argc, argv, "f:v")) >= 0) {
     switch (optchar) {
       case 'f':
-        if (strlen(optarg) >= 1000) {
-          fprintf(stderr, "Config file name too long.\n");
-          return 1;
-        }
+        RETURN_IF(strlen(optarg) >= 1000, ROUGHTIME_BAD_ARGUMENT, "Config file name too long.");
         strcpy(config_file_name, optarg);
         break;
       case 'v':
@@ -564,45 +541,30 @@ int main(int argc, char *argv[]) {
   /* Read config file and check if it contains the required statements. */
   fprintf(stderr, "Using config file %s\n", config_file_name);
   struct stat statbuf;
-  if (stat(config_file_name, &statbuf) != 0) {
-    fprintf(stderr, "Running stat on config file failed: %s\n", strerror(errno));
-    return 1;
-  }
-  if (statbuf.st_mode & (S_IROTH | S_IWOTH)) {
-    fprintf(stderr, "Config file is world readable or writable.\n");
-    return 1;
-  }
-
-  if (read_config_file(config_file_name) != ROUGHTIME_SUCCESS) {
-    fprintf(stderr, "Error when reading config file: %s\n", strerror(errno));
-    RETURN_CONF(1);
-  }
   const char *b64cert;
   const char *b64priv;
-  if (get_config("cert", &b64cert) != ROUGHTIME_SUCCESS
-     || get_config("priv", &b64priv) != ROUGHTIME_SUCCESS) {
-    fprintf(stderr, "Missing cert or priv line in configuration file.\n");
-    RETURN_CONF(1);
-  }
+  RETURN_IF(stat(config_file_name, &statbuf) != 0, ROUGHTIME_FILE_ERROR,
+      "Running stat on config file failed.");
+  RETURN_IF(statbuf.st_mode & (S_IROTH | S_IWOTH), ROUGHTIME_FILE_ERROR,
+      "Config file is world readable or writable.");
+  RETURN_ON_ERROR(read_config_file(config_file_name), "Error when reading config file.");
+  RETURN_ON_ERROR(get_config("cert", &b64cert), "Missing cert line in configuration file.");
+  RETURN_ON_ERROR(get_config("priv", &b64priv), "Missing priv line in configuration file.");
 
+  /* Open statistics file if specified. */
   const char *stats_path;
-  FILE *stats_file = NULL;
   if (get_config("stats", &stats_path) == ROUGHTIME_SUCCESS) {
-    if ((stats_file = fopen(stats_path, "a")) == NULL) {
-      fprintf(stderr, "Error when opening statistics output file.\n");
-      RETURN_CONF(1);
-    }
+    RETURN_IF((stats_file = fopen(stats_path, "a")) == NULL, ROUGHTIME_FILE_ERROR,
+        "Error when opening statistics output file.");
   }
 
+  /* Check if leap second file can be opened. */
   const char *leap_file_path;
   if (get_config("leap", &leap_file_path) == ROUGHTIME_SUCCESS) {
-    FILE *leap_file = NULL;
-    if ((leap_file = fopen(leap_file_path, "r")) == NULL) {
-      fprintf(stderr, "Error when reading leap second file.\n");
-      RETURN_CONF(1);
-    } else {
-      fclose(leap_file);
-    }
+    RETURN_IF((leap_file = fopen(leap_file_path, "r")) == NULL, ROUGHTIME_FILE_ERROR,
+        "Error when opening leap second file");
+    fclose(leap_file);
+    leap_file = NULL;
   }
 
   const char *path_len;
@@ -618,54 +580,50 @@ int main(int argc, char *argv[]) {
   }
 
   /* Parse and check the certificate and private key from the configuration file. */
-  uint8_t cert[153];
-  uint8_t priv[33];
   size_t len_cert = 153;
   size_t len_priv = 33;
-  if (from_base64((uint8_t*)b64cert, cert, &len_cert) != ROUGHTIME_SUCCESS
-      || from_base64((uint8_t*)b64priv, priv, &len_priv) != ROUGHTIME_SUCCESS
-      || len_cert != 152 || len_priv != 32) {
-    fprintf(stderr, "Conversion from base64 failed.\n");
-    RETURN_CONF_STATS_PRIV(1);
-  }
+  RETURN_ON_ERROR(from_base64((uint8_t*)b64cert, cert, &len_cert),
+      "Conversion from base64 failed.");
+  RETURN_ON_ERROR(from_base64((uint8_t*)b64priv, priv, &len_priv),
+      "Conversion from base64 failed.");
+  RETURN_IF(len_cert != 152, ROUGHTIME_FORMAT_ERROR, "Wrong certificate size.");
+  RETURN_IF(len_priv != 32, ROUGHTIME_FORMAT_ERROR, "Wrong private key size.");
+  
   roughtime_header_t cert_header, dele_header;
   uint32_t dele_offset, dele_length, sig_offset, sig_length, mint_offset, mint_length,
       maxt_offset, maxt_length, pubk_offset, pubk_length;
-  if (parse_roughtime_header(cert, 152, &cert_header) != ROUGHTIME_SUCCESS
-      || get_header_tag(&cert_header, str_to_tag("DELE"), &dele_offset, &dele_length)
-          != ROUGHTIME_SUCCESS
-      || get_header_tag(&cert_header, str_to_tag("SIG"), &sig_offset, &sig_length)
-          != ROUGHTIME_SUCCESS
-      || sig_length != 64
-      || parse_roughtime_header(cert + dele_offset, 72, &dele_header)
-          != ROUGHTIME_SUCCESS
-      || get_header_tag(&dele_header, str_to_tag("MINT"), &mint_offset, &mint_length)
-          != ROUGHTIME_SUCCESS
-      || get_header_tag(&dele_header, str_to_tag("MAXT"), &maxt_offset, &maxt_length)
-          != ROUGHTIME_SUCCESS
-      || get_header_tag(&dele_header, str_to_tag("PUBK"), &pubk_offset, &pubk_length)
-          != ROUGHTIME_SUCCESS
-      || mint_length != 8 || maxt_length != 8 || pubk_length != 32) {
-    fprintf(stderr, "Bad CERT in configuration file.\n");
-    RETURN_CONF_STATS_PRIV(1);
-  }
+  RETURN_ON_ERROR(parse_roughtime_header(cert, 152, &cert_header),
+      "Error when parsing certificate.");
+  RETURN_ON_ERROR(get_header_tag(&cert_header, str_to_tag("DELE"), &dele_offset, &dele_length),
+      "Error when parsing DELE tag in certificate header.");
+  RETURN_ON_ERROR(get_header_tag(&cert_header, str_to_tag("SIG"), &sig_offset, &sig_length),
+      "Error when parsing SIG tag in certificate header.");
+  RETURN_IF(sig_length != 64, ROUGHTIME_FORMAT_ERROR, "Wrong certificate signature size.");
+  RETURN_ON_ERROR(parse_roughtime_header(cert + dele_offset, 72, &dele_header),
+      "Error when parsing certificate DELE tag.");
+  RETURN_ON_ERROR(get_header_tag(&dele_header, str_to_tag("MINT"), &mint_offset, &mint_length),
+      "Error when parsing MINT tag in certificate DELE header.");
+  RETURN_ON_ERROR(get_header_tag(&dele_header, str_to_tag("MAXT"), &maxt_offset, &maxt_length),
+      "Error when parsing MAXT tag in certificate DELE header.");
+  RETURN_ON_ERROR(get_header_tag(&dele_header, str_to_tag("PUBK"), &pubk_offset, &pubk_length),
+      "Error when parsing PUBK tag in certificate DELE header");
+  RETURN_IF(mint_length != 8, ROUGHTIME_FORMAT_ERROR, "Bad MINT size in certificate.");
+  RETURN_IF(maxt_length != 8, ROUGHTIME_FORMAT_ERROR, "Bad MAXT size in certificate.");
+  RETURN_IF(pubk_length != 32, ROUGHTIME_FORMAT_ERROR, "Bad PUBK size in certificate.");
+
 
   /* Set a timezone that respects leap seconds. */
-  if (setenv("TZ", "right/UTC", 1) != 0) {
-    fprintf(stderr, "Error setting TZ environment variable.\n");
-    RETURN_CONF_STATS_PRIV(1);
-  }
+  RETURN_IF(setenv("TZ", "right/UTC", 1) != 0, ROUGHTIME_INTERNAL_ERROR,
+      "Error when setting TZ environment variable.");
   tzset();
 
-  /* Check that we set the time zone successfully and that it handles leap seconds as expected. */
+  /* Check that the time zone was set successfully and that it handles leap seconds as expected. */
   struct tm leap_test_tm;
   time_t leap_test_time = 1483228826; /* 2016-12-31 23:59:60 */
   gmtime_r(&leap_test_time, &leap_test_tm);
-  if (leap_test_tm.tm_sec != 60) {
-    fprintf(stderr, "Invalid leap second handling.\n");
-    RETURN_CONF_STATS_PRIV(1);
-  }
+  RETURN_IF(leap_test_tm.tm_sec != 60, ROUGHTIME_INTERNAL_ERROR, "Invalid leap second handling.");
 
+  /* Wait for NTP server to synchronize system time. */
   struct timex timex = {0};
   int adjtime_ret = ntp_adjtime(&timex);
   if (adjtime_ret == TIME_ERROR) {
@@ -675,58 +633,43 @@ int main(int argc, char *argv[]) {
   }
   int time_sync_wait = 0;
   while (adjtime_ret == TIME_ERROR || timex.maxerror > 1000000) {
-    if (time_sync_wait++ > 600) {
-      fprintf(stderr, "Gave up waiting for time synchronization.\n");
-      RETURN_CONF_STATS_PRIV(1);
-    }
+    RETURN_IF(time_sync_wait++ > 600, ROUGHTIME_INTERNAL_ERROR,
+        "Gave up waiting for time synchronization.");
     usleep(100000);
     adjtime_ret = ntp_adjtime(&timex);
   }
-  if (timex.tai == 0) {
-    fprintf(stderr, "TAI offset not set.\n");
-    RETURN_CONF_STATS_PRIV(1);
-  }
+  RETURN_IF(timex.tai == 0, ROUGHTIME_INTERNAL_ERROR, "TAI offset not set.");
 
   int portnum = 2002;
   const char *port_config;
   if (get_config("port", &port_config) == ROUGHTIME_SUCCESS) {
     errno = 0;
     portnum = atoi(port_config);
-    if (errno != 0 || portnum < 0 || portnum >= 65536) {
-      fprintf(stderr, "Bad port argument in config file.\n");
-      RETURN_CONF_STATS_PRIV(1);
-    }
+    RETURN_IF(errno != 0 || portnum < 0 || portnum >= 65536, ROUGHTIME_FORMAT_ERROR,
+        "Bad port argument in config file.");
   }
 
   /* Create and bind socket. */
-  int sock = socket(AF_INET6, SOCK_DGRAM, 0);
-  if (sock == -1) {
-    fprintf(stderr, "Error when creating socket: %s\n", strerror(errno));
-    RETURN_CONF_STATS_PRIV(1);
-  }
+  sock = socket(AF_INET6, SOCK_DGRAM, 0);
+  RETURN_IF(sock == -1, ROUGHTIME_INTERNAL_ERROR, "Error when creating socket.");
   struct sockaddr_in6 addr;
   memset(&addr, 0, sizeof(struct sockaddr_in6));
   addr.sin6_family = AF_INET6;
   addr.sin6_port = htons(portnum);
   addr.sin6_addr = in6addr_any;
-  if (bind(sock, (struct sockaddr*)&addr, sizeof(struct sockaddr_in6)) != 0) {
-    fprintf(stderr, "Error when binding socket: %s\n", strerror(errno));
-    RETURN_CONF_STATS_PRIV_SOCK(1);
-  }
+  RETURN_IF(bind(sock, (struct sockaddr*)&addr, sizeof(struct sockaddr_in6)) != 0,
+      ROUGHTIME_INTERNAL_ERROR, "Error when binding socket.");
 
   /* Set socket receive timeout. */
   struct timeval timeout = {0, 1000}; /* 1000 microseconds. */
   const int one = 1;
-  if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(struct timeval)) != 0
-      || setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &one, sizeof(int)) != 0) {
-    fprintf(stderr, "Error when changing socket settings: %s\n", strerror(errno));
-    RETURN_CONF_STATS_PRIV_SOCK(1);
-    return 1;
-  }
+  RETURN_IF(setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(struct timeval)) != 0
+      || setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &one, sizeof(int)) != 0,
+      ROUGHTIME_INTERNAL_ERROR, "Error when changing socket settings.");
 
   /* Calculate the number of response threads that should be spawned and check for a custom value
      in the configuration file. */
-  long num_response_threads = sysconf(_SC_NPROCESSORS_ONLN) - 1;
+  num_response_threads = sysconf(_SC_NPROCESSORS_ONLN) - 1;
   if (num_response_threads < 1) {
     num_response_threads = 1;
   }
@@ -741,24 +684,18 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  if (signal(SIGINT, signal_handler) == SIG_ERR
-      || signal(SIGTERM, signal_handler) == SIG_ERR) {
-    fprintf(stderr, "Error when registering signal handler: %s\n", strerror(errno));
-    RETURN_CONF_STATS_PRIV_SOCK(1);
-  }
+  RETURN_IF(signal(SIGINT, signal_handler) == SIG_ERR
+      || signal(SIGTERM, signal_handler) == SIG_ERR, ROUGHTIME_INTERNAL_ERROR,
+      "Error when registering signal handler.");
 
   /* References to the response threads and their arguments. */
-  pthread_t threads[num_response_threads];
-  thread_arguments_t *arguments = malloc(sizeof(thread_arguments_t) * num_response_threads);
-  if (arguments == NULL) {
-    RETURN_CONF_STATS_PRIV_SOCK(1);
-  }
-  memset(threads, 0, sizeof(pthread_t) * num_response_threads);
-  memset(arguments, 0, sizeof(thread_arguments_t) * num_response_threads);
+  threads = calloc(num_response_threads, sizeof(pthread_t));
+  arguments = calloc(num_response_threads, sizeof(thread_arguments_t));
+  RETURN_IF(threads == NULL || arguments == NULL, ROUGHTIME_MEMORY_ERROR,
+      "Memory allocation error.");
 
   /* Spawn threads. */
   for (long i = 0; i < num_response_threads; i++) {
-    memset(&arguments[i], 0, sizeof(thread_arguments_t));
     arguments[i].queue_size = QUEUE_SIZE;
     arguments[i].queuep = 0;
     arguments[i].max_tree_size = max_tree_size;
@@ -787,8 +724,7 @@ int main(int argc, char *argv[]) {
       if (ret == 0) {
         pthread_cond_destroy(&arguments[i].queue_cond);
       }
-      fprintf(stderr, "Error when creating pthread.\n");
-      RETURN_CONF_STATS_PRIV_SOCK_ARGS(1);
+      RETURN_IF(1, ROUGHTIME_INTERNAL_ERROR, "Error when creating threads.");
     }
   }
 
@@ -810,10 +746,12 @@ int main(int argc, char *argv[]) {
   struct iovec iov[RECV_MAX];
   struct mmsghdr msgvec[RECV_MAX];
   size_t controllen = CMSG_LEN(sizeof(struct in6_pktinfo));
-  uint8_t control_buf[controllen * RECV_MAX];
+  control_buf = malloc(sizeof(uint8_t) * controllen * RECV_MAX);
+  RETURN_IF(control_buf == NULL, ROUGHTIME_MEMORY_ERROR, "Memory allocation error.");
   memset(sources, 0, sizeof(struct sockaddr_in6) * RECV_MAX);
   memset(control_buf, 0, controllen * RECV_MAX);
 
+  /* Main receive loop. */
   while (!quit) {
     for (int i = 0; i < RECV_MAX; i++) {
       iov[i].iov_base = buf + i * MAX_RECV_LEN;
@@ -880,17 +818,42 @@ int main(int argc, char *argv[]) {
     do_stats(stats_file, &recvcount, &badcount, &queuefullcount);
   }
 
-  /* Signal all threads and wait for them to quit. */
-  for (long i = 0; i < num_response_threads; i++) {
-    pthread_cond_signal(&arguments[i].queue_cond);
-  }
-  for (long i = 0; i < num_response_threads; i++) {
-    pthread_join(threads[i], NULL);
-    pthread_mutex_destroy(&arguments[i].queue_mutex);
-    pthread_cond_destroy(&arguments[i].queue_cond);
-  }
+  
 
+error:
   printf("Quitting.\n");
-
-  RETURN_CONF_STATS_PRIV_SOCK_ARGS(0);
+  quit = true;
+  if (arguments != NULL && threads != NULL) {
+    /* Signal all threads and wait for them to quit. */
+    for (long i = 0; i < num_response_threads; i++) {
+      pthread_cond_signal(&arguments[i].queue_cond);
+    }
+    for (long i = 0; i < num_response_threads; i++) {
+      pthread_join(threads[i], NULL);
+      pthread_mutex_destroy(&arguments[i].queue_mutex);
+      pthread_cond_destroy(&arguments[i].queue_cond);
+    }
+  }
+  explicit_bzero(cert, 153);
+  explicit_bzero(priv, 33);
+  if (arguments != NULL) {
+    explicit_bzero(arguments, sizeof(thread_arguments_t) * num_response_threads);
+  }
+  clear_config();
+  free(threads);
+  free(arguments);
+  free(control_buf);
+  if (sock != -1) {
+    close(sock);
+  }
+  if (stats_file != NULL) {
+    fclose(stats_file);
+  }
+  if (leap_file != NULL) {
+    fclose(leap_file);
+  }
+  if (err == ROUGHTIME_SUCCESS) {
+    return 0;
+  }
+  return 1;
 }
