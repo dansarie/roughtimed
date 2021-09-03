@@ -43,7 +43,7 @@
   Header    56 = 7 * 8
     SIG     64
     VER      4
-    NONC    64
+    NONC    32
     PATH   384 = 32 * MAX_PATH_LEN
     SREP    40 = 5 * 8
       DTAI   4
@@ -54,7 +54,7 @@
     CERT   152
     INDX     4
 */
-#define MAX_RESPONSE_LEN 840
+#define MAX_RESPONSE_LEN 808
 /* Maximum number of messages to receive at once. */
 #define RECV_MAX 1024
 /* Maximum allowed length of received message. */
@@ -253,7 +253,7 @@ void *response_thread(void *arg) {
     for (int i = 0; i < num_queries; i++) {
       if (SHA512_Init(&ctx) != 1
           || SHA512_Update(&ctx, "\x00", 1) != 1
-          || SHA512_Update(&ctx, query_buf[i].nonc, 64) != 1
+          || SHA512_Update(&ctx, query_buf[i].nonc, 32) != 1
           || SHA512_Final(merkle_tree + 32 * i, &ctx) != 1) {
         sha512_error = true;
         break;
@@ -332,7 +332,7 @@ void *response_thread(void *arg) {
     }
 
     uint32_t ver = htole32(0x80000003);
-    uint8_t nonc[64] = {0};
+    uint8_t nonc[32] = {0};
     uint32_t indx = 0;
     uint32_t path_len = merkle_order * 32;
     uint32_t path[MAX_PATH_LEN * 32];
@@ -340,7 +340,7 @@ void *response_thread(void *arg) {
     if ((res = create_roughtime_packet(responses + 12, &response_len, 7,
         "SIG", 64, srep_sig,
         "VER", 4, &ver,
-        "NONC", 64, nonc,
+        "NONC", 32, nonc,
         "PATH", path_len, path,
         "SREP", srep_len, srep,
         "CERT", 152, args->cert,
@@ -392,7 +392,7 @@ void *response_thread(void *arg) {
 
     for (int i = 0; i < num_queries; i++) {
       /* Set NONC. */
-      memcpy(responses + i * response_len + nonc_offset, query_buf[i].nonc, 64);
+      memcpy(responses + i * response_len + nonc_offset, query_buf[i].nonc, 32);
       /* Set INDX. */
       *((uint32_t*)(responses + i * response_len + indx_offset)) = htole32(i);
 
@@ -797,13 +797,13 @@ int main(int argc, char *argv[]) {
           || get_header_tag(&header, str_to_tag("VER"), &ver_offset, &len) != ROUGHTIME_SUCCESS
           || len == 0
           || get_header_tag(&header, str_to_tag("NONC"), &nonc_offset, &len) != ROUGHTIME_SUCCESS
-          || len != 64) {
+          || len != 32) {
         if (msgvec[i].msg_len > 0) {
           badcount += 1;
         }
         continue;
       }
-      memcpy(&queries[num_queries].nonc, buf + i * MAX_RECV_LEN + nonc_offset + 12, 64);
+      memcpy(&queries[num_queries].nonc, buf + i * MAX_RECV_LEN + nonc_offset + 12, 32);
       queries[num_queries].source = sources[i];
 
       /* Get control message with destination IP address. */

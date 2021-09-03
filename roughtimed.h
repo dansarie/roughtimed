@@ -1,6 +1,6 @@
 /* roughtimed.h
 
-   Copyright (C) 2019-2020 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2021 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -28,7 +28,7 @@
 #define QUEUE_SIZE 16384
 
 typedef struct {
-  uint8_t nonc[64];
+  uint8_t nonc[32];
   struct sockaddr_in6 source;
   struct in6_pktinfo dest;
 } __attribute__((aligned(32))) roughtime_query_t;
