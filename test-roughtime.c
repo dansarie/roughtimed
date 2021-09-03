@@ -157,7 +157,7 @@ int main(int argc, char *argv[]) {
       while (ioctl(sock, FIONREAD, &bytes) == 0 && bytes > 0) {
         uint8_t buf[1000000];
         ssize_t r = read(sock, buf, 1000000);
-        printf("Read %ld bytes. (%lu)\n", r, num);
+        printf("Read %zd bytes. (%" PRIu64 ")\n", r, num);
       }
     } else {
       sendto(sock, packet, size, MSG_DONTWAIT, res->ai_addr, res->ai_addrlen);
