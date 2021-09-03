@@ -207,11 +207,11 @@ bool validate_date(int year, int month, int day, int *yday) {
 /* Prompts the user to enter a date, gets it from stdin, validates it and returns the corresponding
        modified julian date.
    mjd - will hold the modified julian date of the entered date. */
-roughtime_result_t get_date(uint32_t *mjd) {
-  if (mjd == NULL) {
+roughtime_result_t get_date(uint32_t *mjd, const char *prompt) {
+  if (mjd == NULL || prompt == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
-  printf("Enter date (YYYY-MM-DD): ");
+  printf("%s", prompt);
   fflush(stdout);
   int year, month, day, yday;
   if (scanf("%d-%d-%d", &year, &month, &day) != 3
@@ -357,13 +357,13 @@ roughtime_result_t gendele() {
   roughtime_result_t res;
   /* Prompt user for private long-term key and validity time. */
   if ((res = get_key("Enter long-term private key:", priv)) != ROUGHTIME_SUCCESS
-      || (res = get_date(&mjd1)) != ROUGHTIME_SUCCESS
-      || (res = get_date(&mjd2)) != ROUGHTIME_SUCCESS) {
+      || (res = get_date(&mjd1, "Enter start date (YYYY-MM-DD): ")) != ROUGHTIME_SUCCESS
+      || (res = get_date(&mjd2, "  Enter end date (YYYY-MM-DD): ")) != ROUGHTIME_SUCCESS) {
     explicit_bzero(priv, KEYLEN);
     return res;
   }
   if (mjd1 >= mjd2) {
-    fprintf(stderr, "MINT >= MAXT\n");
+    fprintf(stderr, "End date must be after start date.\n");
     explicit_bzero(priv, KEYLEN);
     return ROUGHTIME_FORMAT_ERROR;
   }
