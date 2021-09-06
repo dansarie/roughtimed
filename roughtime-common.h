@@ -42,10 +42,13 @@ if (C) {\
    E - return_value/error code. A member of roughtime_result_t.
    M - a string with an error message. */
 #define RETURN_ON_ERROR(E, M)\
-if (E != ROUGHTIME_SUCCESS) {\
-  err = E;\
-  fprintf(stderr, M);\
-  goto error;\
+{\
+  roughtime_result_t e = E;\
+  if (e != ROUGHTIME_SUCCESS) {\
+    err = e;\
+    fprintf(stderr, M);\
+    goto error;\
+  }\
 }
 
 typedef enum {
