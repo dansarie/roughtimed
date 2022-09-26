@@ -1,6 +1,6 @@
 /* test-roughtime.c
 
-   Copyright (C) 2019-2021 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2022 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -82,7 +82,7 @@ int main(int argc, char *argv[]) {
   uint8_t nonc[32] = {0};
   uint8_t pad[PACKET_SIZE - 104] = {0};
   uint32_t size = PACKET_SIZE - 12;
-  uint32_t ver = htole32(0x80000003);
+  uint32_t ver = htole32(0x80000007);
   if (create_roughtime_packet(packet + 12, &size, 3,
       "PAD", 740, pad,
       "VER", 4, &ver,

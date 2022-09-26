@@ -340,7 +340,7 @@ void *response_thread(void *arg) {
       continue;
     }
 
-    uint32_t ver = htole32(0x80000003);
+    uint32_t ver = htole32(0x80000007);
     uint8_t nonc[32] = {0};
     uint32_t indx = 0;
     uint32_t path_len = merkle_order * 32;
