@@ -1,6 +1,6 @@
 /* roughtime-common.c
 
-   Copyright (C) 2019-2020 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2022 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -25,9 +25,9 @@
 #include <string.h>
 #include <openssl/evp.h>
 
-const uint32_t CERTIFICATE_CONTEXT_LEN = 36;
+const uint32_t CERTIFICATE_CONTEXT_LEN = 34;
 const uint32_t SIGNED_RESPONSE_CONTEXT_LEN = 32;
-const uint8_t *const CERTIFICATE_CONTEXT = (uint8_t*)"RoughTime v1 delegation signature--";
+const uint8_t *const CERTIFICATE_CONTEXT = (uint8_t*)"RoughTime v1 delegation signature";
 const uint8_t *const SIGNED_RESPONSE_CONTEXT = (uint8_t*)"RoughTime v1 response signature";
 
 void trim(char *str) {

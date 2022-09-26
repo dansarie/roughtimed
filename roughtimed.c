@@ -1,6 +1,6 @@
 /* roughtimed.c
 
-   Copyright (C) 2019-2021 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2022 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -33,7 +33,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <openssl/sha.h>
+#include <openssl/evp.h>
 #include <sys/stat.h>
 #include <sys/timex.h>
 
@@ -168,6 +168,17 @@ static inline uint32_t clp2(uint32_t x) {
   return x + 1;
 }
 
+static inline roughtime_result_t sha512_256(uint8_t *in, size_t len, uint8_t *out) {
+  if (in == NULL || out == NULL) {
+    return ROUGHTIME_BAD_ARGUMENT;
+  }
+  if (EVP_Digest(in, len, out, NULL, EVP_sha512_256(), NULL) != 1) {
+    fprintf(stderr, "SHA512/256 error\n");
+    return ROUGHTIME_INTERNAL_ERROR;
+  }
+  return ROUGHTIME_SUCCESS;
+}
+
 static inline roughtime_result_t compute_merkle(uint8_t *merkle, uint32_t order) {
   if (merkle == NULL || order > 31) {
     return ROUGHTIME_BAD_ARGUMENT;
@@ -176,14 +187,14 @@ static inline roughtime_result_t compute_merkle(uint8_t *merkle, uint32_t order)
     return ROUGHTIME_SUCCESS;
   }
   uint8_t *next_merkle = merkle + 32 * (1 << order);
-  SHA512_CTX ctx;
+  uint8_t buf[65];
+  buf[0] = 0x01;
+
   for (int i = 0; i < (1 << (order - 1)); i++) {
-    if (SHA512_Init(&ctx) != 1
-        || SHA512_Update(&ctx, "\x01", 1) != 1
-        || SHA512_Update(&ctx, merkle + 64 * i, 64) != 1
-        || SHA512_Final(next_merkle + 32 * i, &ctx) != 1) {
-      fprintf(stderr, "SHA512 error\n");
-      return ROUGHTIME_INTERNAL_ERROR;
+    memcpy(buf + 1, merkle + 64 * i, 64);
+    roughtime_result_t err = sha512_256(buf, 65, next_merkle + 32 * i);
+    if (err != ROUGHTIME_SUCCESS) {
+      return err;
     }
   }
   return compute_merkle(next_merkle, order - 1);
@@ -203,6 +214,7 @@ void *response_thread(void *arg) {
   uint32_t leap_events[3];
   int num_leap_events = 0;
   time_t last_leap_update = 0;
+  uint8_t sha_buf[33];
 
   fesetround(FE_TONEAREST);
 
@@ -248,19 +260,16 @@ void *response_thread(void *arg) {
     memmove(args->queue, args->queue + num_queries, sizeof(roughtime_query_t) * args->queuep);
     pthread_mutex_unlock(&args->queue_mutex);
 
-    SHA512_CTX ctx;
-    bool sha512_error = false;
+    bool sha_error = false;
+    sha_buf[0] = 0x00;
     for (int i = 0; i < num_queries; i++) {
-      if (SHA512_Init(&ctx) != 1
-          || SHA512_Update(&ctx, "\x00", 1) != 1
-          || SHA512_Update(&ctx, query_buf[i].nonc, 32) != 1
-          || SHA512_Final(merkle_tree + 32 * i, &ctx) != 1) {
-        sha512_error = true;
+      memcpy(sha_buf + 1, query_buf[i].nonc, 32);
+      if (sha512_256(sha_buf, 33, merkle_tree + 32 * i) != ROUGHTIME_SUCCESS) {
+        sha_error = true;
         break;
       }
     }
-    if (sha512_error) {
-      fprintf(stderr, "SHA512 error\n");
+    if (sha_error) {
       continue;
     }
     uint32_t merkle_size = clp2(num_queries);
@@ -602,7 +611,7 @@ int main(int argc, char *argv[]) {
       "Conversion from base64 failed.");
   RETURN_IF(len_cert != 152, ROUGHTIME_FORMAT_ERROR, "Wrong certificate size.");
   RETURN_IF(len_priv != 32, ROUGHTIME_FORMAT_ERROR, "Wrong private key size.");
-  
+
   roughtime_header_t cert_header, dele_header;
   uint32_t dele_offset, dele_length, sig_offset, sig_length, mint_offset, mint_length,
       maxt_offset, maxt_length, pubk_offset, pubk_length;
@@ -832,7 +841,7 @@ int main(int argc, char *argv[]) {
     do_stats(stats_file, &recvcount, &badcount, &queuefullcount);
   }
 
-  
+
 
 error:
   printf("Quitting.\n");
