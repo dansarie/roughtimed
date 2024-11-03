@@ -1,6 +1,6 @@
 /* roughtime-common.h
 
-   Copyright (C) 2019-2021 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2024 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -18,8 +18,14 @@
 #ifndef __ROUGHTIME_COMMON_H__
 #define __ROUGHTIME_COMMON_H__
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <inttypes.h>
+#include <stdbool.h>
 #include <stddef.h>
+#include <time.h>
 
 /* Ceiling division: ceil(N/D). */
 #define CEIL_DIV(N, D) (((N) + (D) - 1) / (D))
@@ -117,14 +123,15 @@ roughtime_result_t get_header_tag(const roughtime_header_t *restrict header,
 
 /* Parses a Roughtime timestamp. Returns ROUGHTIME_SUCCESS when successful.
    timestamp    A Roughtime timestamp.
-   mjd          Return variable for the modified julian date.
+   year         Return variable for the year.
+   month        Return variable for the month.
+   day          Return variable for the day.
    hour         Return variable for the hour.
    minute       Return variable for the minute.
-   second       Return variable for the second.
-   microsecond  Return variable for the microsecond. */
-roughtime_result_t timestamp_to_time(uint64_t timestamp, uint32_t *restrict mjd,
-    uint32_t *restrict hour, uint32_t *restrict minute, uint32_t *restrict second,
-    uint32_t *restrict microsecond);
+   second       Return variable for the second. */
+roughtime_result_t timestamp_to_time(time_t timestamp, uint32_t *restrict year,
+    uint32_t *restrict month, uint32_t *restrict day, uint32_t *restrict hour,
+    uint32_t *restrict minute, uint32_t *restrict second);
 
 /* Attempts to verify an ed25519 signature. Returns ROUGHTIME_SUCCESS when successful and
    ROUGHTIME_BAD_SIGNATURE if the signature is not valid.
@@ -157,5 +164,8 @@ roughtime_result_t sign(const uint8_t *restrict data, uint32_t len,
    len_out  The size of the output buffer. */
 roughtime_result_t from_base64(const uint8_t *restrict base64, uint8_t *restrict out,
     size_t *restrict len_out);
+
+roughtime_result_t test_cert(const uint8_t *restrict publ, const uint8_t *restrict cert,
+    bool verbose);
 
 #endif /* __ROUGHTIME_COMMON_H__ */

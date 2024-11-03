@@ -33,9 +33,13 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <openssl/evp.h>
+#include <openssl/sha.h>
 #include <sys/stat.h>
 #include <sys/timex.h>
+
+#ifndef VERSION
+#define VERSION "(unknown)"
+#endif
 
 #define MAX_PATH_LEN 12
 /*
@@ -60,101 +64,15 @@
 /* Maximum allowed length of received message. */
 #define MAX_RECV_LEN 1500
 
+#ifndef MAX
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
+
 bool quit = false; /* Set to quit by the signal handler to indicate that all threads should quit. */
 
 void signal_handler(int signal) {
   fprintf(stderr, "Caught signal.\n");
   quit = true;
-}
-
-/* Qsort compare function used by get_leap_events. */
-static int compare_leap(const void *e1, const void *e2) {
-  uint32_t evt1 = *((uint32_t*)e1) & 0x7fffffff;
-  uint32_t evt2 = *((uint32_t*)e2) & 0x7fffffff;
-  if (evt1 > evt2) {
-    return -1;
-  }
-  if (evt2 > evt1) {
-    return 1;
-  }
-  return 0;
-}
-
-/* Gets a list of leap second events from the system leap second file.
-   leap_second_file - path to file.
-   events           - return buffer.
-   num_events       - buffer size. Set to number of returned items.
-   expires          - MJD of leap second file expiry. */
-static roughtime_result_t get_leap_events(const char *leap_second_file, uint32_t *events,
-    int *num_events, uint32_t *expires) {
-  if (leap_second_file == NULL || events == NULL || num_events == NULL || expires == NULL) {
-    return ROUGHTIME_BAD_ARGUMENT;
-  }
-
-  FILE *fp = fopen(leap_second_file, "r");
-  if (fp == NULL) {
-    return ROUGHTIME_FILE_ERROR;
-  }
-
-  char *line = NULL;
-  size_t lsize = 0;
-  int tailast = 0;
-  uint32_t evtbuf[1000];
-  int bufp = 0;
-  *expires = 0;
-  bool printed_err = false;
-  while (getline(&line, &lsize, fp) >= 0) {
-    uint64_t time;
-    int tai;
-    if (sscanf(line, "%" PRIu64 "%d", &time, &tai) == 2) {
-      if (bufp == 1000) {
-        if (!printed_err) {
-          fprintf(stderr, "Warning: more than 1000 events in leap second file!\n");
-          printed_err = true;
-        }
-        memmove(evtbuf, evtbuf + 1, sizeof(uint32_t) * 999);
-        bufp = 999;
-      }
-      evtbuf[bufp] = time / 86400 + 15020;
-      if (tai < tailast) {
-        evtbuf[bufp] |= 0x80000000;
-      }
-      tailast = tai;
-      bufp += 1;
-    } else if (sscanf(line, "#@ %" PRIu64, &time) == 1) {
-      *expires = time / 86400 + 15020;
-    }
-  }
-  free(line);
-  fclose(fp);
-  qsort(evtbuf, bufp, sizeof(uint32_t), compare_leap);
-  if (*num_events > bufp) {
-    *num_events = bufp;
-  }
-
-  for (int i = 0; i < *num_events; i++) {
-    events[i] = evtbuf[i];
-  }
-
-  return ROUGHTIME_SUCCESS;
-}
-
-/* Converts a timeval struct to a Roughtime timestamp.
-   tv   - the timeval to convert
-   nano - true if tv_usec in tv is in nanoseconds, false if it is in microseconds. */
-static inline uint64_t timeval_to_timestamp(struct timeval tv, bool nano) {
-  struct tm tm;
-  gmtime_r(&tv.tv_sec, &tm);
-  uint64_t mjd = 51545 + ((uint64_t)tm.tm_year - 100) * 365 + ((uint64_t)tm.tm_year - 101) / 4
-      + (uint64_t)tm.tm_yday;
-  uint64_t usecs = (uint64_t)tm.tm_hour * 3600000000 + (uint64_t)tm.tm_min * 60000000
-      + (uint64_t)tm.tm_sec * 1000000;
-  if (nano) {
-    usecs += nearbyint(tv.tv_usec / 1000.0);
-  } else {
-    usecs += tv.tv_usec;
-  }
-  return (mjd << 40) | usecs;
 }
 
 /* Ceiling power of 2. */
@@ -172,10 +90,9 @@ static inline roughtime_result_t sha512_256(uint8_t *in, size_t len, uint8_t *ou
   if (in == NULL || out == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
-  if (EVP_Digest(in, len, out, NULL, EVP_sha512_256(), NULL) != 1) {
-    fprintf(stderr, "SHA512/256 error\n");
-    return ROUGHTIME_INTERNAL_ERROR;
-  }
+  uint8_t buf[64];
+  SHA512(in, len, buf);
+  memcpy(out, buf, 32);
   return ROUGHTIME_SUCCESS;
 }
 
@@ -211,9 +128,6 @@ void *response_thread(void *arg) {
   uint8_t *control_buf = NULL;
   size_t controllen = CMSG_LEN(sizeof(struct in6_pktinfo));
 
-  uint32_t leap_events[3];
-  int num_leap_events = 0;
-  time_t last_leap_update = 0;
   uint8_t sha_buf[33];
 
   fesetround(FE_TONEAREST);
@@ -280,58 +194,24 @@ void *response_thread(void *arg) {
     uint32_t *root = (uint32_t*)(merkle_tree + 32 * ((1 << (merkle_order + 1)) - 2));
 
     /* MIDP */
-    struct timex timex = {0};
-    ntp_adjtime(&timex);
-    timex.time.tv_sec += timex.tai - 10; /* Fixed 10 second offset between TAI and Unix time. */
-    uint64_t midp = timeval_to_timestamp(timex.time, timex.status & STA_NANO);
-    uint32_t mjd = midp >> 40;
-    midp = htole64(midp);
+    uint64_t midp = htole64(time(NULL));
 
     /* RADI */
-    uint32_t radi = htole32(timex.maxerror);
-    /* If maxerror is very small, we trust the esterror field. */
-    if (timex.maxerror < 10000) {
-      radi = htole32(timex.esterror);
-    }
+    uint32_t radi = htole32(3);
 
     /* SREP */
     uint32_t srep_len = 140;
     uint8_t srep[140];
     roughtime_result_t res;
 
-    /* DTAI */
-    uint32_t tai = timex.tai;
-    if (timex.tai < 0) {
-      tai = 0x80000000 | -timex.tai;
-    }
-    tai = htole32(tai);
-
-    /* LEAP */
-    if (args->leap_file_path != NULL && labs(timex.time.tv_sec - last_leap_update) > 60) {
-      last_leap_update = timex.time.tv_sec;
-      num_leap_events = 3;
-      uint32_t leap_events_expire = 0;
-      if (get_leap_events(args->leap_file_path, leap_events, &num_leap_events,
-          &leap_events_expire) != ROUGHTIME_SUCCESS) {
-        fprintf(stderr, "Error when reading leap second file.\n");
-        num_leap_events = 0;
-      } else if (leap_events_expire <= mjd) {
-        num_leap_events = 0;
-      }
-      for (int i = 0; i < num_leap_events; i++) {
-        leap_events[i] = htole32(leap_events[i]);
-      }
-    }
-
-    if ((res = create_roughtime_packet(srep, &srep_len, 5,
-        "DTAI", 4, &tai,
+    if ((res = create_roughtime_packet(srep, &srep_len, 3,
         "RADI", 4, &radi,
-        "LEAP", 4 * num_leap_events, leap_events,
         "MIDP", 8, &midp,
         "ROOT", 32, root)) != ROUGHTIME_SUCCESS) {
       fprintf(stderr, "Error when creating SREP packet.\n");
       continue;
     }
+
     /* SIG */
     uint32_t srep_sig[16];
     if (sign(srep, srep_len, SIGNED_RESPONSE_CONTEXT, SIGNED_RESPONSE_CONTEXT_LEN,
@@ -340,7 +220,7 @@ void *response_thread(void *arg) {
       continue;
     }
 
-    uint32_t ver = htole32(0x80000007);
+    uint32_t ver = htole32(0x8000000B);
     uint8_t nonc[32] = {0};
     uint32_t indx = 0;
     uint32_t path_len = merkle_order * 32;
@@ -379,7 +259,6 @@ void *response_thread(void *arg) {
     *((uint64_t*)responses) = htole64(0x4d49544847554f52);
     *((uint32_t*)(responses + 8)) = htole32(response_len);
     response_len += 12;
-
 
     /* Create multiple copies of template response packet. */
     for (int i = 1; i < num_queries; i++) {
@@ -537,6 +416,8 @@ int main(int argc, char *argv[]) {
   long num_response_threads = 0;
   uint8_t cert[153];
   uint8_t priv[33];
+  uint8_t publ[33];
+  uint8_t srvhash[33];
   FILE *stats_file = NULL;
   FILE *leap_file = NULL;
   bool no_sync = false;
@@ -568,8 +449,9 @@ int main(int argc, char *argv[]) {
   /* Read config file and check if it contains the required statements. */
   fprintf(stderr, "Using config file %s\n", config_file_name);
   struct stat statbuf;
-  const char *b64cert;
-  const char *b64priv;
+  const char *b64cert; /* Base64-encoded certificate packet. */
+  const char *b64priv; /* Base64-encoded delegate certificate private key. */
+  const char *b64publ; /* Base64-encoded long-term certificate public key. */
   RETURN_IF(stat(config_file_name, &statbuf) != 0, ROUGHTIME_FILE_ERROR,
       "Running stat on config file failed.");
   RETURN_IF(statbuf.st_mode & (S_IROTH | S_IWOTH), ROUGHTIME_FILE_ERROR,
@@ -577,6 +459,7 @@ int main(int argc, char *argv[]) {
   RETURN_ON_ERROR(read_config_file(config_file_name), "Error when reading config file.");
   RETURN_ON_ERROR(get_config("cert", &b64cert), "Missing cert line in configuration file.");
   RETURN_ON_ERROR(get_config("priv", &b64priv), "Missing priv line in configuration file.");
+  RETURN_ON_ERROR(get_config("publ", &b64publ), "Missing publ line in configuration file.");
 
   /* Open statistics file if specified. */
   const char *stats_path;
@@ -609,12 +492,16 @@ int main(int argc, char *argv[]) {
   /* Parse and check the certificate and private key from the configuration file. */
   size_t len_cert = 153;
   size_t len_priv = 33;
+  size_t len_publ = 33;
   RETURN_ON_ERROR(from_base64((uint8_t*)b64cert, cert, &len_cert),
       "Conversion from base64 failed.");
   RETURN_ON_ERROR(from_base64((uint8_t*)b64priv, priv, &len_priv),
       "Conversion from base64 failed.");
+  RETURN_ON_ERROR(from_base64((uint8_t*)b64publ, publ, &len_publ),
+      "Conversion from base64 failed.");
   RETURN_IF(len_cert != 152, ROUGHTIME_FORMAT_ERROR, "Wrong certificate size.");
-  RETURN_IF(len_priv != 32, ROUGHTIME_FORMAT_ERROR, "Wrong private key size.");
+  RETURN_IF(len_priv != 32,  ROUGHTIME_FORMAT_ERROR, "Wrong private key size.");
+  RETURN_IF(len_publ != 32,  ROUGHTIME_FORMAT_ERROR, "Wrong public key size.");
 
   roughtime_header_t cert_header, dele_header;
   uint32_t dele_offset, dele_length, sig_offset, sig_length, mint_offset, mint_length,
@@ -634,21 +521,13 @@ int main(int argc, char *argv[]) {
       "Error when parsing MAXT tag in certificate DELE header.");
   RETURN_ON_ERROR(get_header_tag(&dele_header, str_to_tag("PUBK"), &pubk_offset, &pubk_length),
       "Error when parsing PUBK tag in certificate DELE header");
-  RETURN_IF(mint_length != 8, ROUGHTIME_FORMAT_ERROR, "Bad MINT size in certificate.");
-  RETURN_IF(maxt_length != 8, ROUGHTIME_FORMAT_ERROR, "Bad MAXT size in certificate.");
+  RETURN_IF(mint_length != 8,  ROUGHTIME_FORMAT_ERROR, "Bad MINT size in certificate.");
+  RETURN_IF(maxt_length != 8,  ROUGHTIME_FORMAT_ERROR, "Bad MAXT size in certificate.");
   RETURN_IF(pubk_length != 32, ROUGHTIME_FORMAT_ERROR, "Bad PUBK size in certificate.");
-
-
-  /* Set a timezone that respects leap seconds. */
-  RETURN_IF(setenv("TZ", "right/UTC", 1) != 0, ROUGHTIME_INTERNAL_ERROR,
-      "Error when setting TZ environment variable.");
-  tzset();
-
-  /* Check that the time zone was set successfully and that it handles leap seconds as expected. */
-  struct tm leap_test_tm;
-  time_t leap_test_time = 1483228826; /* 2016-12-31 23:59:60 */
-  gmtime_r(&leap_test_time, &leap_test_tm);
-  RETURN_IF(leap_test_tm.tm_sec != 60, ROUGHTIME_INTERNAL_ERROR, "Invalid leap second handling.");
+  RETURN_ON_ERROR(test_cert(publ, cert, false), "Verification of certificate failed.");
+  srvhash[0] = 0xff;
+  memcpy(srvhash + 1, publ, 32);
+  sha512_256(srvhash, 33, srvhash);
 
   /* Wait for NTP server to synchronize system time. */
   if (!no_sync) {
@@ -802,7 +681,7 @@ int main(int argc, char *argv[]) {
     int num_queries = 0;
     for (int i = 0; i < received; i++) {
       roughtime_header_t header;
-      uint32_t ver_offset, nonc_offset, len;
+      uint32_t ver_offset, nonc_offset, srv_offset, len;
       /* Ignore non-compliant packets and receive timeouts. */
       if (msgvec[i].msg_len < MAX_RESPONSE_LEN
           || le64toh(*(uint64_t*)(buf + i * MAX_RECV_LEN)) != 0x4d49544847554f52 /* ROUGHTIM */
@@ -817,6 +696,12 @@ int main(int argc, char *argv[]) {
           badcount += 1;
         }
         continue;
+      }
+      if (get_header_tag(&header, str_to_tag("SRV"), &srv_offset, &len) == ROUGHTIME_SUCCESS) {
+        if (len != 32 || memcmp(srvhash, buf + i * MAX_RECV_LEN + srv_offset + 12, 32) != 0) {
+          badcount += 1;
+          continue;
+        }
       }
       memcpy(&queries[num_queries].nonc, buf + i * MAX_RECV_LEN + nonc_offset + 12, 32);
       queries[num_queries].source = sources[i];

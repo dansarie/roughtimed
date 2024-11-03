@@ -1,6 +1,6 @@
 /* roughtime-common.c
 
-   Copyright (C) 2019-2022 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2024 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -25,9 +25,9 @@
 #include <string.h>
 #include <openssl/evp.h>
 
-const uint32_t CERTIFICATE_CONTEXT_LEN = 34;
+const uint32_t CERTIFICATE_CONTEXT_LEN = 36;
 const uint32_t SIGNED_RESPONSE_CONTEXT_LEN = 32;
-const uint8_t *const CERTIFICATE_CONTEXT = (uint8_t*)"RoughTime v1 delegation signature";
+const uint8_t *const CERTIFICATE_CONTEXT = (uint8_t*)"RoughTime v1 delegation signature--";
 const uint8_t *const SIGNED_RESPONSE_CONTEXT = (uint8_t*)"RoughTime v1 response signature";
 
 void trim(char *str) {
@@ -155,37 +155,28 @@ roughtime_result_t get_header_tag(const roughtime_header_t *restrict header,
   return ROUGHTIME_NOT_FOUND;
 }
 
-roughtime_result_t timestamp_to_time(uint64_t timestamp, uint32_t *restrict mjd,
-    uint32_t *restrict hour, uint32_t *restrict minute, uint32_t *restrict second,
-    uint32_t *restrict microsecond) {
+roughtime_result_t timestamp_to_time(time_t timestamp, uint32_t *restrict year,
+    uint32_t *restrict month, uint32_t *restrict day, uint32_t *restrict hour,
+    uint32_t *restrict minute, uint32_t *restrict second) {
 
-  if (mjd == NULL || hour == NULL || minute == NULL || second == NULL || microsecond == NULL) {
+  if (year == NULL || month == NULL || day == NULL || hour == NULL || minute == NULL
+      || second == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
-  *mjd = timestamp >> 40;
-  timestamp &= 0xFFFFFFFFFFULL;
+  roughtime_result_t err = ROUGHTIME_SUCCESS;
 
-  if (timestamp >= 86401000000) {
-    return ROUGHTIME_FORMAT_ERROR;
-  } else if (timestamp >= 86400000000) {
-    /* Leap second. */
-    *hour = 23;
-    *minute = 59;
-    *second = 60;
-    *microsecond = timestamp - 86400000000;
-    return ROUGHTIME_SUCCESS;
-  }
+  struct tm ts = {0};
+  RETURN_IF(gmtime_r(&timestamp, &ts) != &ts, ROUGHTIME_INTERNAL_ERROR, "gmtime_r returned error.");
+  *year   = ts.tm_year  + 1900;
+  *month  = ts.tm_mon   + 1;
+  *day    = ts.tm_mday;
+  *hour   = ts.tm_hour;
+  *minute = ts.tm_min;
+  *second = ts.tm_sec;
 
-  *hour = timestamp / 3600000000;
-  timestamp -= *hour;
-  *minute = timestamp / 60000000;
-  timestamp -= *minute;
-  *second = timestamp / 1000000;
-  timestamp -= *second;
-  *microsecond = timestamp;
-
-  return ROUGHTIME_SUCCESS;
+error:
+  return err;
 }
 
 roughtime_result_t verify_signature(const uint8_t *restrict data, uint32_t len,
@@ -302,4 +293,72 @@ roughtime_result_t from_base64(const uint8_t *restrict base64, uint8_t *restrict
   }
   *len_out = len;
   return ROUGHTIME_SUCCESS;
+}
+
+roughtime_result_t test_cert(const uint8_t *restrict publ, const uint8_t *restrict cert,
+    bool verbose) {
+  uint32_t offset, len;
+  uint8_t *dele = NULL;
+  uint8_t sig[64];
+  uint8_t pubk[32];
+  roughtime_result_t err = ROUGHTIME_SUCCESS;
+  roughtime_header_t header;
+
+  RETURN_ON_ERROR(parse_roughtime_header((uint8_t*)cert, 152, &header),
+      "Error when parsing CERT header.");
+  RETURN_IF(header.num_tags != 2, ROUGHTIME_FORMAT_ERROR,
+      "Unexpected number of pags in CERT header.");
+
+  RETURN_ON_ERROR(get_header_tag(&header, str_to_tag("DELE"), &offset, &len), "Missing DELE tag.");
+
+  dele = malloc(len);
+  RETURN_IF(dele == NULL, ROUGHTIME_MEMORY_ERROR, "Malloc returned NULL.");
+  memcpy(dele, cert + offset, len);
+
+  RETURN_ON_ERROR(get_header_tag(&header, str_to_tag("SIG"), &offset, &len), "Missing SIG tag.");
+  RETURN_IF(len != 64, ROUGHTIME_FORMAT_ERROR, "Bad signature length.");
+  memcpy(sig, cert + offset, 64);
+
+  RETURN_ON_ERROR(parse_roughtime_header(dele, 72, &header), "Error when parsing DELE header.");
+  RETURN_IF(header.num_tags != 3, ROUGHTIME_FORMAT_ERROR,
+      "Unexpected number of tags in DELE header.");
+
+  RETURN_ON_ERROR(get_header_tag(&header, str_to_tag("PUBK"), &offset, &len), "Missing PUBK tag.");
+  RETURN_IF(len != 32, ROUGHTIME_FORMAT_ERROR, "Bad public key length.");
+  memcpy(pubk, dele + offset, 32);
+
+  RETURN_ON_ERROR(get_header_tag(&header, str_to_tag("MINT"), &offset, &len), "Missing MINT tag.");
+  RETURN_IF(len != 8, ROUGHTIME_FORMAT_ERROR, "Bad MINT length.");
+  uint64_t mint = le64toh(*((uint64_t*)(dele + offset)));
+
+  RETURN_ON_ERROR(get_header_tag(&header, str_to_tag("MAXT"), &offset, &len), "Missing MAXT tag.");
+  RETURN_IF(len != 8, ROUGHTIME_FORMAT_ERROR, "Bad MAXT length.");
+  uint64_t maxt = le64toh(*((uint64_t*)(dele + offset)));
+
+  if (verbose) {
+    uint32_t year, month, day, hour, minute, second;
+    timestamp_to_time(mint, &year, &month, &day, &hour, &minute, &second);
+    printf("MINT: %" PRIu32 "-%02" PRIu32 "-%02" PRIu32 " %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32
+        " (%016" PRIx64 ")\n", year, month, day, hour, minute, second, mint);
+    timestamp_to_time(maxt, &year, &month, &day, &hour, &minute, &second);
+    printf("MAXT: %" PRIu32 "-%02" PRIu32 "-%02" PRIu32 " %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32
+        " (%016" PRIx64 ")\n", year, month, day, hour, minute, second, maxt);
+  }
+
+  err = verify_signature(dele, 72, CERTIFICATE_CONTEXT, CERTIFICATE_CONTEXT_LEN, sig,
+      (uint8_t*)publ);
+  if (verbose) {
+    if (err == ROUGHTIME_SUCCESS) {
+      printf("Good signature!\n");
+    } else if (err == ROUGHTIME_BAD_SIGNATURE) {
+      printf("BAD SIGNATURE!\n");
+    } else {
+      printf("Internal error when verifying signature.\n");
+    }
+  }
+  RETURN_ON_ERROR(err, "Error when verifying signature.");
+
+error:
+  free(dele);
+  return err;
 }

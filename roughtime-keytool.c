@@ -1,6 +1,6 @@
 /* roughtimed-keytool.c
 
-   Copyright (C) 2019-2020 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2024 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -15,13 +15,19 @@
    You should have received a copy of the GNU General Public License
    along with this program. If not, see <http://www.gnu.org/licenses/>. */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "roughtime-common.h"
 
 #include <assert.h>
+#include <endian.h>
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <openssl/bio.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
@@ -201,7 +207,7 @@ bool validate_date(int year, int month, int day, int *yday) {
   if (month < 1 || month > 12) {
     return false;
   }
-  int days[] = {00, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  int days[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
   if (year % 4 == 0) {
     days[2] = 29;
   }
@@ -218,23 +224,33 @@ bool validate_date(int year, int month, int day, int *yday) {
   return true;
 }
 
-/* Prompts the user to enter a date, gets it from stdin, validates it and returns the corresponding
-       modified julian date.
-   mjd - will hold the modified julian date of the entered date. */
-roughtime_result_t get_date(uint32_t *mjd, const char *prompt) {
-  if (mjd == NULL || prompt == NULL) {
+/* Prompts the user to enter a date, gets it from stdin, validates it and returns year, month, and
+   day.
+   timestamp UNIX timestamp representation of the first second of the date entered by the user.
+   prompt    prompt to display when getting date. */
+roughtime_result_t get_date(time_t *restrict timestamp, const char *restrict prompt) {
+  if (timestamp == NULL || prompt == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
+  roughtime_result_t err = ROUGHTIME_SUCCESS;
   printf("%s", prompt);
   fflush(stdout);
-  int year, month, day, yday;
-  if (scanf("%d-%d-%d", &year, &month, &day) != 3
-      || !validate_date(year, month, day, &yday)) {
+  int pyear, pmonth, pday;
+  if (scanf("%d-%d-%d", &pyear, &pmonth, &pday) != 3
+      || !validate_date(pyear, pmonth, pday, NULL)) {
     fprintf(stderr, "Bad date format.\n");
     return ROUGHTIME_FORMAT_ERROR;
   }
-  *mjd = 51544 + (year - 2000) * 365 + (year - 2001) / 4 + yday;
-  return ROUGHTIME_SUCCESS;
+  struct tm date = {
+    .tm_year = pyear - 1900,
+    .tm_mon  = pmonth - 1,
+    .tm_mday = pday
+  };
+  time_t ts = timegm(&date);
+  RETURN_IF(ts < 0, ROUGHTIME_INTERNAL_ERROR, "timegm returned an error.");
+  *timestamp = ts;
+error:
+  return err;
 }
 
 /* Prompts the user to input a base64 encoded CERT packet, gets it from stdin and parses it.
@@ -263,126 +279,38 @@ roughtime_result_t get_cert(uint8_t *cert) {
 roughtime_result_t parsecert() {
   uint8_t publ[32];
   uint8_t cert[152];
-  roughtime_result_t res;
-  if ((res = get_key("Enter long-term public key:", publ)) != ROUGHTIME_SUCCESS
-      || (res = get_cert(cert)) != ROUGHTIME_SUCCESS) {
-    return res;
-  }
-
   roughtime_header_t header;
-  if ((res = parse_roughtime_header(cert, 152, &header))
-      != ROUGHTIME_SUCCESS) {
-    fprintf(stderr, "Error when parsing CERT header.\n");
-    return res;
-  }
+  roughtime_result_t err = ROUGHTIME_SUCCESS;
+  RETURN_ON_ERROR(get_key("Enter long-term public key:", publ), "Error when getting key.");
+  RETURN_ON_ERROR(get_cert(cert), "Error when getting certificate.");
 
-  if (header.num_tags != 2) {
-    printf("Unexpected number of tags in CERT header: %" PRIu32 "\n", header.num_tags);
-  }
+  RETURN_ON_ERROR(parse_roughtime_header(cert, 152, &header), "Error when parsing CERT header.");
 
-  uint32_t offset, len;
+  RETURN_ON_ERROR(test_cert(publ, cert, true), "Error when testing certificate.");
 
-  if ((res = get_header_tag(&header, str_to_tag("DELE"), &offset, &len)) != ROUGHTIME_SUCCESS) {
-    printf("Missing DELE tag.\n");
-    return ROUGHTIME_FORMAT_ERROR;
-  }
-  uint8_t dele[len];
-  memcpy(dele, cert + offset, len);
-
-  if ((res = get_header_tag(&header, str_to_tag("SIG"), &offset, &len)) != ROUGHTIME_SUCCESS) {
-    printf("Missing SIG tag.\n");
-    return ROUGHTIME_FORMAT_ERROR;
-  }
-  if (len != 64) {
-    printf("Bad signature length: %" PRIu32 "\n", len);
-    return ROUGHTIME_FORMAT_ERROR;
-  }
-  uint8_t sig[64];
-  memcpy(sig, cert + offset, 64);
-
-  if ((res = parse_roughtime_header(dele, 72, &header))
-      != ROUGHTIME_SUCCESS) {
-    fprintf(stderr, "Error when parsing DELE header.\n");
-    return res;
-  }
-
-  if (header.num_tags != 3) {
-    printf("Unexpected number of tags in DELE header: %" PRIu32 "\n", header.num_tags);
-  }
-
-  if ((res = get_header_tag(&header, str_to_tag("PUBK"), &offset, &len)) != ROUGHTIME_SUCCESS) {
-    printf("Missing PUBK tag.\n");
-    return ROUGHTIME_FORMAT_ERROR;
-  }
-  if (len != 32) {
-    printf("Bad public key length: %" PRIu32 "\n", len);
-    return ROUGHTIME_FORMAT_ERROR;
-  }
-  uint8_t pubk[32];
-  memcpy(pubk, dele + offset, 32);
-
-  if ((res = get_header_tag(&header, str_to_tag("MINT"), &offset, &len)) != ROUGHTIME_SUCCESS) {
-    printf("Missing MINT tag.\n");
-    return ROUGHTIME_FORMAT_ERROR;
-  }
-  if (len != 8) {
-    printf("Bad MINT length: %" PRIu32 "\n", len);
-    return ROUGHTIME_FORMAT_ERROR;
-  }
-  uint64_t mint = le64toh(*((uint64_t*)(dele + offset)));
-
-  if ((res = get_header_tag(&header, str_to_tag("MAXT"), &offset, &len)) != ROUGHTIME_SUCCESS) {
-    printf("Missing MAXT tag.\n");
-    return ROUGHTIME_FORMAT_ERROR;
-  }
-  if (len != 8) {
-    printf("Bad MAXT length: %" PRIu32 "\n", len);
-    return ROUGHTIME_FORMAT_ERROR;
-  }
-  uint64_t maxt = le64toh(*((uint64_t*)(dele + offset)));
-
-  uint8_t pubk_base64[46];
-  key_to_base64(pubk, pubk_base64);
-  uint32_t mjd, hour, minute, second, microsecond;
-  timestamp_to_time(mint, &mjd, &hour, &minute, &second, &microsecond);
-  printf("\nPUBK: %s\n", pubk_base64);
-  printf("MINT: MJD: %" PRIu32 "  %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32 ".%06" PRIu32 " "
-      "(%016" PRIx64 ")\n", mjd, hour, minute, second, microsecond, mint);
-  timestamp_to_time(maxt, &mjd, &hour, &minute, &second, &microsecond);
-  printf("MAXT: MJD: %" PRIu32 "  %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32 ".%06" PRIu32 " "
-      "(%016" PRIx64 ")\n", mjd, hour, minute, second, microsecond, maxt);
-
-  res = verify_signature(dele, 72, CERTIFICATE_CONTEXT, CERTIFICATE_CONTEXT_LEN, sig, publ);
-  if (res == ROUGHTIME_SUCCESS) {
-    printf("Good signature!\n");
-  } else if (res == ROUGHTIME_BAD_SIGNATURE) {
-    printf("BAD SIGNATURE!\n");
-  } else {
-    fprintf(stderr, "Internal error when verifying signature.\n");
-  }
-
-  return ROUGHTIME_SUCCESS;
+error:
+  return err;
 }
 
 /* Generate a delegate key certificate. */
 roughtime_result_t gendele() {
   uint8_t priv[KEYLEN];
-  uint32_t mjd1, mjd2;
+  time_t ts1, ts2;
   roughtime_result_t res;
   /* Prompt user for private long-term key and validity time. */
   if ((res = get_key("Enter long-term private key:", priv)) != ROUGHTIME_SUCCESS
-      || (res = get_date(&mjd1, "Enter start date (YYYY-MM-DD): ")) != ROUGHTIME_SUCCESS
-      || (res = get_date(&mjd2, "  Enter end date (YYYY-MM-DD): ")) != ROUGHTIME_SUCCESS) {
+      || (res = get_date(&ts1, "Enter start date (YYYY-MM-DD): ")) != ROUGHTIME_SUCCESS
+      || (res = get_date(&ts2, "  Enter end date (YYYY-MM-DD): ")) != ROUGHTIME_SUCCESS) {
     explicit_bzero(priv, KEYLEN);
     return res;
   }
-  if (mjd1 >= mjd2) {
+  if (ts1 >= ts2) {
     fprintf(stderr, "End date must be after start date.\n");
     explicit_bzero(priv, KEYLEN);
     return ROUGHTIME_FORMAT_ERROR;
   }
-  uint64_t mint = htole64((uint64_t)mjd1 << 40);
-  uint64_t maxt = htole64((uint64_t)mjd2 << 40);
+  uint64_t mint = htole64((uint64_t)ts1);
+  uint64_t maxt = htole64((uint64_t)ts2);
 
   /* Generate a delegate private key. */
   uint8_t dele_priv[KEYLEN];

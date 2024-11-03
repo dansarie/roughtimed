@@ -1,6 +1,6 @@
 /* roughtimed.h
 
-   Copyright (C) 2019-2021 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2024 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -18,7 +18,9 @@
 #ifndef __ROUGHTIMED_H__
 #define __ROUGHTIMED_H__
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include "roughtime-common.h"
 #include <inttypes.h>

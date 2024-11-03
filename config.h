@@ -1,6 +1,6 @@
 /* config.h
 
-   Copyright (C) 2019 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2024 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,7 +20,7 @@
 
 #include "roughtimed.h"
 
-roughtime_result_t read_config_file();
+roughtime_result_t read_config_file(const char *filename);
 roughtime_result_t get_config(const char *restrict key, const char **restrict value);
 void clear_config();
 
