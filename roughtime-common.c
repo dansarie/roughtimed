@@ -336,7 +336,7 @@ roughtime_result_t test_cert(const uint8_t *restrict publ, const uint8_t *restri
   uint64_t maxt = le64toh(*((uint64_t*)(dele + offset)));
 
   if (verbose) {
-    uint32_t year, month, day, hour, minute, second;
+    uint32_t year = 0, month = 0, day = 0, hour = 0, minute = 0, second = 0;
     timestamp_to_time(mint, &year, &month, &day, &hour, &minute, &second);
     printf("MINT: %" PRIu32 "-%02" PRIu32 "-%02" PRIu32 " %02" PRIu32 ":%02" PRIu32 ":%02" PRIu32
         " (%016" PRIx64 ")\n", year, month, day, hour, minute, second, mint);
