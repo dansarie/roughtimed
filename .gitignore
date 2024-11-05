@@ -1,1 +1,3 @@
+*.swp
+.ccls-cache
 build/*
