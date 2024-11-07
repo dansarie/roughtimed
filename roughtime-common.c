@@ -307,7 +307,7 @@ roughtime_result_t test_cert(const uint8_t *restrict publ, const uint8_t *restri
   RETURN_ON_ERROR(parse_roughtime_header((uint8_t*)cert, 152, &header),
       "Error when parsing CERT header.");
   RETURN_IF(header.num_tags != 2, ROUGHTIME_FORMAT_ERROR,
-      "Unexpected number of pags in CERT header.");
+      "Unexpected number of tags in CERT header.");
 
   RETURN_ON_ERROR(get_header_tag(&header, str_to_tag("DELE"), &offset, &len), "Missing DELE tag.");
 
