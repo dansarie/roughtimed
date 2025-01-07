@@ -505,21 +505,17 @@ int main(int argc, char *argv[]) {
   uint8_t srvhash[33];
   FILE *stats_file = NULL;
   FILE *leap_file = NULL;
-  bool no_sync = false;
 
   /* Parse command line options. */
   char config_file_name[1000];
   strcpy(config_file_name, "/etc/roughtimed.conf");
   bool verbose = false;
   int optchar;
-  while ((optchar = getopt(argc, argv, "f:sv")) >= 0) {
+  while ((optchar = getopt(argc, argv, "f:v")) >= 0) {
     switch (optchar) {
       case 'f':
         RETURN_IF(strlen(optarg) >= 1000, ROUGHTIME_BAD_ARGUMENT, "Config file name too long.");
         strcpy(config_file_name, optarg);
-        break;
-      case 's':
-        no_sync = true;
         break;
       case 'v':
         printf("Verbose output enabled.\n");
@@ -613,25 +609,6 @@ int main(int argc, char *argv[]) {
   srvhash[0] = 0xff;
   memcpy(srvhash + 1, publ, 32);
   sha512_256(srvhash, 33, srvhash);
-
-  /* Wait for NTP server to synchronize system time. */
-  if (!no_sync) {
-    struct timex timex = {0};
-    int adjtime_ret = ntp_adjtime(&timex);
-    if (adjtime_ret == TIME_ERROR) {
-      fprintf(stderr, "System clock not synchronized. Waiting for time synchronization.\n");
-    } else if (timex.maxerror > 1000000) {
-      fprintf(stderr, "Time error too high. Waiting for time synchronization.\n");
-    }
-    int time_sync_wait = 0;
-    while (adjtime_ret == TIME_ERROR || timex.maxerror > 1000000) {
-      RETURN_IF(time_sync_wait++ > 600, ROUGHTIME_INTERNAL_ERROR,
-          "Gave up waiting for time synchronization.");
-      usleep(100000);
-      adjtime_ret = ntp_adjtime(&timex);
-    }
-    RETURN_IF(timex.tai == 0, ROUGHTIME_INTERNAL_ERROR, "TAI offset not set.");
-  }
 
   int portnum = 2002;
   const char *port_config;

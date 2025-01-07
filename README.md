@@ -69,7 +69,6 @@ The following table summarizes the configuration options in the configuration fi
 | Option | Argument  | Description |
 | ------ | --------- | ----------- |
 | -f     | file name | Configuration file path. |
-| -s     | (none)    | Don't wait for NTP synchronization when starting. |
 | -v     | (none)    | Increased verbosity. |
 
 ## Statistics
