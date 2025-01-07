@@ -1,6 +1,6 @@
 # CMakeLists.txt
 #
-# Copyright (C) 2019-2024 Marcus Dansarie <marcus@dansarie.se>
+# Copyright (C) 2019-2025 Marcus Dansarie <marcus@dansarie.se>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -18,7 +18,7 @@
 
 cmake_minimum_required (VERSION 3.10)
 
-project(ROUGHTIMED VERSION 1.2.0 LANGUAGES C)
+project(ROUGHTIMED VERSION 1.3.0 LANGUAGES C)
 
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)

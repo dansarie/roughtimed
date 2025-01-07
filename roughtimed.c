@@ -1,6 +1,6 @@
 /* roughtimed.c
 
-   Copyright (C) 2019-2024 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2025 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -18,12 +18,14 @@
 #define _GNU_SOURCE
 
 #include "config.h"
-#include "roughtimed.h"
+#include "roughtime-common.h"
 
 #include <endian.h>
 #include <errno.h>
 #include <fenv.h>
+#include <inttypes.h>
 #include <math.h>
+#include <netinet/ip.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -43,30 +45,64 @@
 
 #define MAX_PATH_LEN 12
 /*
-  Header    12
-  Header    56 = 7 * 8
-    SIG     64
-    VER      4
-    NONC    32
-    PATH   384 = 32 * MAX_PATH_LEN
-    SREP    40 = 5 * 8
-      DTAI   4
-      RADI   4
-      LEAP  12
-      MIDP   8
-      ROOT  32
-    CERT   152
-    INDX     4
+ROUGHTIM header      12
+Header               48 = 6 * 8
+|--SIG               64
+|--NONC              32
+|--PATH             384 = 32 * MAX_PATH_LEN
+|--SREP              40 = 5 * 8
+|  |--VER             4
+|  |--RADI            4
+|  |--MIDP            8
+|  |--VERS            4
+|  |--ROOT           32
+|--CERT              16 = 2 * 8
+|  |--DELE           24 = 3 * 8
+|  |  |--MINT         8
+|  |  |--MAXT         8
+|  |  |--PUBK        32
+|  |--SIG            64
+|--INDX               4
+MAX_RESPONSE_LEN =  788
 */
-#define MAX_RESPONSE_LEN 808
+/* Length of longest possible response message. */
+#define MAX_RESPONSE_LEN 788
 /* Maximum number of messages to receive at once. */
 #define RECV_MAX 1024
 /* Maximum allowed length of received message. */
 #define MAX_RECV_LEN 1500
+/* At least one more than MAX_RECV_LEN, to leading zero for hashing. */
+#define MAX_RECV_BUFLEN 1501
+/* Roughtime version number. */
+#define ROUGHTIME_VERSION 0x8000000C
+/* Length of incoming request queue. */
+#define QUEUE_SIZE 16384
 
 #ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif
+
+typedef struct {
+  uint8_t msg[MAX_RECV_BUFLEN];
+  uint32_t len;
+  uint32_t nonc_offset;
+  struct sockaddr_in6 source;
+  struct in6_pktinfo dest;
+} __attribute__((aligned(32))) roughtime_query_t;
+
+typedef struct {
+  roughtime_query_t queue[QUEUE_SIZE];
+  uint32_t cert[152];
+  uint8_t priv[256];
+  uint32_t queue_size;
+  uint32_t queuep;
+  uint32_t max_tree_size;
+  pthread_mutex_t queue_mutex;
+  pthread_cond_t queue_cond;
+  int sock;
+  bool verbose;
+  const char *leap_file_path;
+} thread_arguments_t;
 
 bool quit = false; /* Set to quit by the signal handler to indicate that all threads should quit. */
 
@@ -128,8 +164,6 @@ void *response_thread(void *arg) {
   uint8_t *control_buf = NULL;
   size_t controllen = CMSG_LEN(sizeof(struct in6_pktinfo));
 
-  uint8_t sha_buf[33];
-
   fesetround(FE_TONEAREST);
 
   if (posix_memalign((void**)&merkle_tree, 32, 64 * (args->max_tree_size + 1)) != 0
@@ -175,10 +209,9 @@ void *response_thread(void *arg) {
     pthread_mutex_unlock(&args->queue_mutex);
 
     bool sha_error = false;
-    sha_buf[0] = 0x00;
     for (int i = 0; i < num_queries; i++) {
-      memcpy(sha_buf + 1, query_buf[i].nonc, 32);
-      if (sha512_256(sha_buf, 33, merkle_tree + 32 * i) != ROUGHTIME_SUCCESS) {
+      if (sha512_256(query_buf[i].msg, query_buf[i].len + 1, merkle_tree + 32 * i)
+          != ROUGHTIME_SUCCESS) {
         sha_error = true;
         break;
       }
@@ -193,20 +226,37 @@ void *response_thread(void *arg) {
     /* ROOT */
     uint32_t *root = (uint32_t*)(merkle_tree + 32 * ((1 << (merkle_order + 1)) - 2));
 
+    struct timex timex = {0};
+    int adjtime_ret = ntp_adjtime(&timex);
+
     /* MIDP */
-    uint64_t midp = htole64(time(NULL));
+    uint64_t midp = htole64(timex.time.tv_sec);
 
     /* RADI */
-    uint32_t radi = htole32(3);
+    uint32_t radi = 0xffffffffUL; /* Set RADI to max value in case of error. */
+    if (adjtime_ret != TIME_ERROR) {
+      radi = CEIL_DIV(timex.maxerror, 1000000);
+      if (radi == 0) { /* Ensure RADI is at least one even if maxerror is zero. */
+        radi = 1;
+      }
+      /* Ensure RADI is at least three during leap second days. */
+      if (adjtime_ret == TIME_INS || adjtime_ret == TIME_DEL || adjtime_ret == TIME_OOP
+          || adjtime_ret == TIME_WAIT) {
+        radi = MAX(radi, 3);
+      }
+    }
 
     /* SREP */
     uint32_t srep_len = 140;
     uint8_t srep[140];
     roughtime_result_t res;
 
-    if ((res = create_roughtime_packet(srep, &srep_len, 3,
+    uint32_t ver_value = ROUGHTIME_VERSION;
+    if ((res = create_roughtime_packet(srep, &srep_len, 5,
+        "VER",  4, &ver_value,
         "RADI", 4, &radi,
         "MIDP", 8, &midp,
+        "VERS", 4, &ver_value,
         "ROOT", 32, root)) != ROUGHTIME_SUCCESS) {
       fprintf(stderr, "Error when creating SREP packet.\n");
       continue;
@@ -220,15 +270,13 @@ void *response_thread(void *arg) {
       continue;
     }
 
-    uint32_t ver = htole32(0x8000000B);
     uint8_t nonc[32] = {0};
     uint32_t indx = 0;
     uint32_t path_len = merkle_order * 32;
     uint32_t path[MAX_PATH_LEN * 32];
     uint32_t response_len = MAX_RESPONSE_LEN - 12;
-    if ((res = create_roughtime_packet(responses + 12, &response_len, 7,
+    if ((res = create_roughtime_packet(responses + 12, &response_len, 6,
         "SIG", 64, srep_sig,
-        "VER", 4, &ver,
         "NONC", 32, nonc,
         "PATH", path_len, path,
         "SREP", srep_len, srep,
@@ -280,7 +328,8 @@ void *response_thread(void *arg) {
 
     for (int i = 0; i < num_queries; i++) {
       /* Set NONC. */
-      memcpy(responses + i * response_len + nonc_offset, query_buf[i].nonc, 32);
+      memcpy(responses + i * response_len + nonc_offset,
+          query_buf[i].msg + query_buf[i].nonc_offset, 32);
       /* Set INDX. */
       *((uint32_t*)(responses + i * response_len + indx_offset)) = htole32(i);
 
@@ -376,6 +425,43 @@ static roughtime_result_t add_queries(pthread_t *thread, thread_arguments_t *arg
   return ROUGHTIME_SUCCESS;
 }
 
+/* Validate the contents of a VER tag. Checks the following: The length is not zero, the length is
+   a multiple of four, the tag does not contain more than 32 version numbers, the version numbers
+   are sorted in ascending numerical order, the tag contains a version number supported by this
+   implementation. Returns true if the VER tag if all tests pass and false otherwise.
+   buf     A message buffer.
+   offset  Offset of the VER tag contents.
+   length  The length of the VER tag contents.
+   verbose If true, a message describing the fault is printed to stdout whenever the function
+           returns false.
+*/
+static inline bool check_ver(uint8_t *buf, uint32_t offset, uint32_t length, bool verbose) {
+  if (length == 0        /* Check that VER tag has at least one entry. */
+      || length % 4 != 0 /* Check that VER tag has a valid length. */
+      || length > 128) { /* Don't allow more than 32 version numbers in VER tag. */
+    if (verbose) {
+      printf("Bad VER tag length: %d\n", length);
+    }
+    return false;
+  }
+  uint32_t ver = 0;
+  uint32_t prev = 0;
+  for (uint32_t i = offset; i < offset + length; i += 4) {
+    ver = le32toh(*(uint32_t*)(buf + i));
+    /* Check that version numbers are sorted in ascending order. */
+    if (i != offset && ver <= prev) {
+      printf("Version numbers not sorted.\n");
+      return false;
+    }
+    if (ver == ROUGHTIME_VERSION) {
+      return true;
+    }
+    prev = ver;
+  }
+  printf("No matching version number.\n");
+  return false;
+}
+
 static void do_stats(FILE *restrict stats_file, uint64_t *restrict recvcount,
     uint64_t *restrict badcount, uint64_t *restrict queuefullcount) {
 
@@ -407,7 +493,6 @@ static void do_stats(FILE *restrict stats_file, uint64_t *restrict recvcount,
 }
 
 int main(int argc, char *argv[]) {
-
   roughtime_result_t err = ROUGHTIME_SUCCESS;
   pthread_t *threads = NULL;
   thread_arguments_t *arguments = NULL;
@@ -682,28 +767,47 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < received; i++) {
       roughtime_header_t header;
       uint32_t ver_offset, nonc_offset, srv_offset, len;
+      uint8_t *msgbufp = buf + i * MAX_RECV_LEN;
       /* Ignore non-compliant packets and receive timeouts. */
-      if (msgvec[i].msg_len < MAX_RESPONSE_LEN
-          || le64toh(*(uint64_t*)(buf + i * MAX_RECV_LEN)) != 0x4d49544847554f52 /* ROUGHTIM */
-          || le32toh(*(uint32_t*)(buf + i * MAX_RECV_LEN + 8)) != msgvec[i].msg_len - 12
-          || parse_roughtime_header(buf + i * MAX_RECV_LEN + 12, msgvec[i].msg_len - 12, &header)
+      if (msgvec[i].msg_len < MAX_RESPONSE_LEN /* Ignore all too short packets. */
+          /* Check for ROUGHTIM header at beginning of packet. */
+          || le64toh(*(uint64_t*)msgbufp) != 0x4d49544847554f52 /* ROUGHTIM */
+          /* Check stat stated length is equal to actual packet length. */
+          || le32toh(*(uint32_t*)(msgbufp + 8)) != msgvec[i].msg_len - 12
+          /* Parse the packet message header. */
+          || parse_roughtime_header(msgbufp + 12, msgvec[i].msg_len - 12, &header)
               != ROUGHTIME_SUCCESS
+          /* Get VER tag. */
           || get_header_tag(&header, str_to_tag("VER"), &ver_offset, &len) != ROUGHTIME_SUCCESS
-          || len == 0
+          /* Check that VER tag is valid and contains the correct version number. */
+          || !check_ver(msgbufp, ver_offset + 12, len, verbose)
+          /* Get NONC tag. */
           || get_header_tag(&header, str_to_tag("NONC"), &nonc_offset, &len) != ROUGHTIME_SUCCESS
+          /* Ensure that NONC tag has correct length. */
           || len != 32) {
         if (msgvec[i].msg_len > 0) {
+          if (verbose) {
+            printf("Packet failed receive sanity check.\n");
+          }
           badcount += 1;
         }
         continue;
       }
+      /* Check if SRV tag is present. */
       if (get_header_tag(&header, str_to_tag("SRV"), &srv_offset, &len) == ROUGHTIME_SUCCESS) {
-        if (len != 32 || memcmp(srvhash, buf + i * MAX_RECV_LEN + srv_offset + 12, 32) != 0) {
+        if (len != 32 || memcmp(srvhash, msgbufp + srv_offset + 12, 32) != 0) {
+          if (verbose) {
+            printf("Bad packet SRV tag.\n");
+          }
           badcount += 1;
           continue;
         }
       }
-      memcpy(&queries[num_queries].nonc, buf + i * MAX_RECV_LEN + nonc_offset + 12, 32);
+
+      queries[num_queries].msg[0] = 0x00; /* Leading zero for hash. */
+      memcpy(queries[num_queries].msg + 1, msgbufp, msgvec[i].msg_len);
+      queries[num_queries].len = msgvec[i].msg_len;
+      queries[num_queries].nonc_offset = nonc_offset + 13;
       queries[num_queries].source = sources[i];
 
       /* Get control message with destination IP address. */
