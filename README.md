@@ -74,10 +74,16 @@ The following table summarizes the configuration options in the configuration fi
 ## Statistics
 
 If the stats statement is present in the configuration file, a line containing basic statistics will
-be appended to the indicated file every minute. The six columns contain the following information,
-in order: date and time, number of received valid queries, number of received invalid queries,
-number of queries ignored due to query buffer overflow, maximum time error in microseconds, and
-estimated time error in microseconds.
+be appended to the indicated file every minute. The columns contain the following information.
+
+| Column | Description |
+| ------ | ----------- |
+|      1 | Date and time in ISO 8601 extended format. |
+|      2 | Number of received valid queries. |
+|      3 | Number of received invalid queries. |
+|      4 | Number of queries ignored due to query buffer overflow. |
+|      5 | Maximum time error in microseconds. |
+|      6 | Estimated time error in microseconds. |
 
 ## License and Copyright
 
