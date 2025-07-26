@@ -1,6 +1,6 @@
 /* config.c
 
-   Copyright (C) 2019 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2015 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by

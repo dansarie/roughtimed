@@ -1,6 +1,6 @@
 /* roughtime-common.h
 
-   Copyright (C) 2019-2024 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2025 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
