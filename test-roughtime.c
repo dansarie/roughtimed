@@ -35,6 +35,7 @@
 bool quit = false;
 
 void signal_handler(int signal) {
+  (void)signal;
   quit = true;
 }
 

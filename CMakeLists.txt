@@ -33,6 +33,6 @@ target_link_libraries(roughtime-keytool OpenSSL::SSL)
 target_link_libraries(roughtime-test OpenSSL::SSL)
 add_definitions(-DVERSION="${ROUGHTIMED_VERSION}")
 
-set(CMAKE_C_FLAGS "-march=native -Ofast -g -Wall -Wpedantic")
+set(CMAKE_C_FLAGS "-march=native -Ofast -g -Wall -Wpedantic -Wextra -Werror")
 
 install(TARGETS roughtimed roughtime-keytool DESTINATION bin)

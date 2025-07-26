@@ -21,6 +21,8 @@
 #include <sys/timex.h>
 
 int main(int argc, char *argv[]) {
+  (void)argc;
+  (void)argv;
   struct timex t = {0};
   int retval = ntp_adjtime(&t);
   if (retval == -1) {

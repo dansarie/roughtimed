@@ -31,7 +31,7 @@ const uint8_t *const CERTIFICATE_CONTEXT = (uint8_t*)"RoughTime v1 delegation si
 const uint8_t *const SIGNED_RESPONSE_CONTEXT = (uint8_t*)"RoughTime v1 response signature";
 
 void trim(char *str) {
-  size_t p = 0;
+  ssize_t p = 0;
   while (isspace(str[p]) && str[p] != '\0') {
     p += 1;
   }
@@ -145,7 +145,7 @@ roughtime_result_t get_header_tag(const roughtime_header_t *restrict header,
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
-  for (int i = 0; i < header->num_tags; i++) {
+  for (uint32_t i = 0; i < header->num_tags; i++) {
     if (header->tags[i] == tag) {
       *offset = header->offsets[i];
       *length = header->lengths[i];
@@ -278,7 +278,7 @@ roughtime_result_t from_base64(const uint8_t *restrict base64, uint8_t *restrict
     fprintf(stderr, "Output buffer too small.\n");
     return ROUGHTIME_BAD_ARGUMENT;
   }
-  int len = 0;
+  size_t len = 0;
   if ((len = EVP_DecodeBlock(out, b64, b64_len)) < 1) {
     explicit_bzero(out, *len_out);
     fprintf(stderr, "Error when base64 decoding string.\n");

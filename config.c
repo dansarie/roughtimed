@@ -89,7 +89,7 @@ roughtime_result_t get_config(const char *restrict key, const char **restrict va
   }
   size_t keylen = strlen(key);
   char lc_key[keylen + 1];
-  for (int i = 0; i < keylen; i++) {
+  for (size_t i = 0; i < keylen; i++) {
     lc_key[i] = tolower(key[i]);
   }
   lc_key[keylen] = '\0';

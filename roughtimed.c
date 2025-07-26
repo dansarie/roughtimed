@@ -107,6 +107,7 @@ typedef struct {
 bool quit = false; /* Set to quit by the signal handler to indicate that all threads should quit. */
 
 void signal_handler(int signal) {
+  (void)signal;
   fprintf(stderr, "Caught signal.\n");
   quit = true;
 }
@@ -209,7 +210,7 @@ void *response_thread(void *arg) {
     pthread_mutex_unlock(&args->queue_mutex);
 
     bool sha_error = false;
-    for (int i = 0; i < num_queries; i++) {
+    for (uint32_t i = 0; i < num_queries; i++) {
       if (sha512_256(query_buf[i].msg, query_buf[i].len + 1, merkle_tree + 32 * i)
           != ROUGHTIME_SUCCESS) {
         sha_error = true;
@@ -309,15 +310,15 @@ void *response_thread(void *arg) {
     response_len += 12;
 
     /* Create multiple copies of template response packet. */
-    for (int i = 1; i < num_queries; i++) {
+    for (uint32_t i = 1; i < num_queries; i++) {
       memcpy(responses + i * response_len, responses, response_len);
     }
 
     /* Set response packets' PATH tag. */
     uint8_t *merklep = merkle_tree;
-    for (int level = 0; level < merkle_order; level++) {
+    for (uint32_t level = 0; level < merkle_order; level++) {
       for (int i = 0; i < 1 << (merkle_order - level); i++) {
-        int idx = (i ^ 1) << level;
+        uint32_t idx = (i ^ 1) << level;
         uint8_t *responsep = responses + idx * response_len + path_offset + level * 32;
         for (int k = 0; k < 1 << level && (idx | k) < num_queries; k++) {
           memcpy(responsep + k * response_len, merklep, 32);
@@ -326,7 +327,7 @@ void *response_thread(void *arg) {
       }
     }
 
-    for (int i = 0; i < num_queries; i++) {
+    for (uint32_t i = 0; i < num_queries; i++) {
       /* Set NONC. */
       memcpy(responses + i * response_len + nonc_offset,
           query_buf[i].msg + query_buf[i].nonc_offset, 32);
