@@ -148,7 +148,7 @@ int main(int argc, char *argv[]) {
       memcpy(packet + nonc_offset + i * sizeof(uint64_t), &rand, sizeof(uint64_t));
     }
     if (tcp) {
-      if (num < 1000000 && write(sock, packet, size) != size && errno != EAGAIN) {
+      if (num < 1000000 && write(sock, packet, size) != (ssize_t)size && errno != EAGAIN) {
         fprintf(stderr, "Error when writing to socket: %s\n", strerror(errno));
         close(sock);
         return 1;
