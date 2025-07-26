@@ -24,7 +24,6 @@
 #include <errno.h>
 #include <fenv.h>
 #include <inttypes.h>
-#include <math.h>
 #include <netinet/ip.h>
 #include <pthread.h>
 #include <signal.h>
@@ -46,9 +45,10 @@
 #define MAX_PATH_LEN 12
 /*
 ROUGHTIM header      12
-Header               48 = 6 * 8
+Header               56 = 7 * 8
 |--SIG               64
 |--NONC              32
+|--TYPE               4
 |--PATH             384 = 32 * MAX_PATH_LEN
 |--SREP              40 = 5 * 8
 |  |--VER             4
@@ -63,10 +63,10 @@ Header               48 = 6 * 8
 |  |  |--PUBK        32
 |  |--SIG            64
 |--INDX               4
-MAX_RESPONSE_LEN =  788
+MAX_RESPONSE_LEN =  800
 */
 /* Length of longest possible response message. */
-#define MAX_RESPONSE_LEN 788
+#define MAX_RESPONSE_LEN 800
 /* Maximum number of messages to receive at once. */
 #define RECV_MAX 1024
 /* Maximum allowed length of received message. */
@@ -276,9 +276,11 @@ void *response_thread(void *arg) {
     uint32_t path_len = merkle_order * 32;
     uint32_t path[MAX_PATH_LEN * 32];
     uint32_t response_len = MAX_RESPONSE_LEN - 12;
-    if ((res = create_roughtime_packet(responses + 12, &response_len, 6,
+    uint32_t type_value = 1;
+    if ((res = create_roughtime_packet(responses + 12, &response_len, 7,
         "SIG", 64, srep_sig,
         "NONC", 32, nonc,
+        "TYPE", 4, &type_value,
         "PATH", path_len, path,
         "SREP", srep_len, srep,
         "CERT", 152, args->cert,
@@ -744,7 +746,7 @@ int main(int argc, char *argv[]) {
     int num_queries = 0;
     for (int i = 0; i < received; i++) {
       roughtime_header_t header;
-      uint32_t ver_offset, nonc_offset, srv_offset, len;
+      uint32_t ver_offset, nonc_offset, srv_offset, type_offset, len;
       uint8_t *msgbufp = buf + i * MAX_RECV_LEN;
       /* Ignore non-compliant packets and receive timeouts. */
       if (msgvec[i].msg_len < MAX_RESPONSE_LEN /* Ignore all too short packets. */
@@ -762,7 +764,13 @@ int main(int argc, char *argv[]) {
           /* Get NONC tag. */
           || get_header_tag(&header, str_to_tag("NONC"), &nonc_offset, &len) != ROUGHTIME_SUCCESS
           /* Ensure that NONC tag has correct length. */
-          || len != 32) {
+          || len != 32
+          /* Get TYPE tag. */
+          || get_header_tag(&header, str_to_tag("TYPE"), &type_offset, &len) != ROUGHTIME_SUCCESS
+          /* Ensure that TYPE tag has correct length. */
+          || len != 4
+          /* Ensure that TYPE tag has correct value. */
+          || le32toh(*(uint32_t*)(buf + type_offset + 12)) != 0) {
         if (msgvec[i].msg_len > 0) {
           if (verbose) {
             printf("Packet failed receive sanity check.\n");
