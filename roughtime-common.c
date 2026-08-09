@@ -1,6 +1,6 @@
 /* roughtime-common.c
 
-   Copyright (C) 2019-2025 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2026 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -16,7 +16,6 @@
    along with this program. If not, see <http://www.gnu.org/licenses/>. */
 
 #include "roughtime-common.h"
-#include <assert.h>
 #include <ctype.h>
 #include <endian.h>
 #include <inttypes.h>
@@ -56,8 +55,11 @@ uint32_t str_to_tag(const char *str) {
   return ret;
 }
 
-roughtime_result_t create_roughtime_packet(uint8_t *restrict packet, uint32_t *restrict size,
-    uint32_t num_tags, ...) {
+roughtime_result_t create_roughtime_packet(
+    uint8_t *restrict packet,
+    uint32_t *restrict size,
+    uint32_t num_tags,
+    ...) {
 
   if (packet == NULL || size == NULL || num_tags == 0) {
     return ROUGHTIME_BAD_ARGUMENT;
@@ -83,7 +85,11 @@ roughtime_result_t create_roughtime_packet(uint8_t *restrict packet, uint32_t *r
       header[i] = htole32(offset);
     }
     uint32_t tag = str_to_tag(va_arg(ap, char*));
-    assert(tag > last_tag); /* Assertion fails if tags are not sorted. */
+    /* Fail if tags are not sorted. */
+    if (tag <= last_tag) {
+      va_end(ap);
+      return ROUGHTIME_BAD_ARGUMENT;
+    }
     last_tag = tag;
     header[num_tags + i] = htole32(tag);
     uint32_t field_size = va_arg(ap, uint32_t);
@@ -92,7 +98,6 @@ roughtime_result_t create_roughtime_packet(uint8_t *restrict packet, uint32_t *r
       return ROUGHTIME_BAD_ARGUMENT;
     }
     uint32_t *ptr = va_arg(ap, uint32_t*);
-    assert(header_len + offset + field_size <= *size);
     memcpy(packet + header_len + offset, ptr, field_size);
     offset += field_size;
   }
@@ -102,7 +107,9 @@ roughtime_result_t create_roughtime_packet(uint8_t *restrict packet, uint32_t *r
   return ROUGHTIME_SUCCESS;
 }
 
-roughtime_result_t parse_roughtime_header(const uint8_t *restrict packet, uint32_t packet_len,
+roughtime_result_t parse_roughtime_header(
+    const uint8_t *restrict packet,
+    uint32_t packet_len,
     roughtime_header_t *restrict header) {
 
   if (packet == NULL || packet_len < 12 || packet_len % 4 != 0 || header == NULL) {
@@ -111,7 +118,9 @@ roughtime_result_t parse_roughtime_header(const uint8_t *restrict packet, uint32
 
   header->num_tags = le32toh(*((uint32_t*)packet));
   uint32_t header_len = header->num_tags * 8;
-  if (header->num_tags == 0 || header->num_tags * 12 > packet_len || header_len >= packet_len
+  if (header->num_tags == 0
+      || header->num_tags * 12 > packet_len
+      || header_len >= packet_len
       || header->num_tags > ROUGHTIME_HEADER_MAX_TAGS) {
     return ROUGHTIME_FORMAT_ERROR;
   }
@@ -121,7 +130,8 @@ roughtime_result_t parse_roughtime_header(const uint8_t *restrict packet, uint32
       header->offsets[i] = header_len;
     } else {
       header->offsets[i] = le32toh(((uint32_t*)packet)[i]) + header_len;
-      if (header->offsets[i] % 4 != 0 || header->offsets[i] < header->offsets[i - 1]
+      if (header->offsets[i] % 4 != 0
+          || header->offsets[i] < header->offsets[i - 1]
           || header->offsets[i] > packet_len) {
         return ROUGHTIME_FORMAT_ERROR;
       }
@@ -137,10 +147,15 @@ roughtime_result_t parse_roughtime_header(const uint8_t *restrict packet, uint32
   return ROUGHTIME_SUCCESS;
 }
 
-roughtime_result_t get_header_tag(const roughtime_header_t *restrict header,
-    uint32_t tag, uint32_t *restrict offset, uint32_t *restrict length) {
+roughtime_result_t get_header_tag(
+    const roughtime_header_t *restrict header,
+    uint32_t tag,
+    uint32_t *restrict offset,
+    uint32_t *restrict length) {
 
-  if (header == NULL || offset == NULL || length == NULL
+  if (header == NULL
+      || offset == NULL
+      || length == NULL
       || header->num_tags >= ROUGHTIME_HEADER_MAX_TAGS) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
@@ -155,11 +170,20 @@ roughtime_result_t get_header_tag(const roughtime_header_t *restrict header,
   return ROUGHTIME_NOT_FOUND;
 }
 
-roughtime_result_t timestamp_to_time(time_t timestamp, uint32_t *restrict year,
-    uint32_t *restrict month, uint32_t *restrict day, uint32_t *restrict hour,
-    uint32_t *restrict minute, uint32_t *restrict second) {
+roughtime_result_t timestamp_to_time(
+    time_t timestamp,
+    uint32_t *restrict year,
+    uint32_t *restrict month,
+    uint32_t *restrict day,
+    uint32_t *restrict hour,
+    uint32_t *restrict minute,
+    uint32_t *restrict second) {
 
-  if (year == NULL || month == NULL || day == NULL || hour == NULL || minute == NULL
+  if (year == NULL
+      || month == NULL
+      || day == NULL
+      || hour == NULL
+      || minute == NULL
       || second == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
@@ -179,11 +203,18 @@ error:
   return err;
 }
 
-roughtime_result_t verify_signature(const uint8_t *restrict data, uint32_t len,
-    const uint8_t *restrict context, uint32_t context_len,
-    const uint8_t *restrict signature, const uint8_t *restrict public_key) {
+roughtime_result_t verify_signature(
+    const uint8_t *restrict data,
+    uint32_t len,
+    const uint8_t *restrict context,
+    uint32_t context_len,
+    const uint8_t *restrict signature,
+    const uint8_t *restrict public_key) {
 
-  if (data == NULL || len == 0 || signature == NULL || public_key == NULL
+  if (data == NULL
+      || len == 0
+      || signature == NULL
+      || public_key == NULL
       || (context == NULL && context_len > 0)) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
@@ -223,11 +254,18 @@ roughtime_result_t verify_signature(const uint8_t *restrict data, uint32_t len,
   }
 }
 
-roughtime_result_t sign(const uint8_t *restrict data, uint32_t len,
-    const uint8_t *restrict context, uint32_t context_len,
-    uint8_t *restrict signature, const uint8_t *restrict private_key) {
+roughtime_result_t sign(
+    const uint8_t *restrict data,
+    uint32_t len,
+    const uint8_t *restrict context,
+    uint32_t context_len,
+    uint8_t *restrict signature,
+    const uint8_t *restrict private_key) {
 
-  if (data == NULL || len == 0 || signature == NULL || private_key == NULL
+  if (data == NULL
+      || len == 0
+      || signature == NULL
+      || private_key == NULL
       || (context == NULL && context_len > 0)) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
@@ -254,17 +292,18 @@ roughtime_result_t sign(const uint8_t *restrict data, uint32_t len,
   }
   size_t siglen = 64;
   int ret = EVP_DigestSign(ctx, signature, &siglen, buf, len + context_len);
-  assert(siglen == 64);
 
   EVP_MD_CTX_free(ctx);
   EVP_PKEY_CTX_free(pctx);
-  if (ret != 1) {
+  if (ret != 1 || siglen != 64) {
     return ROUGHTIME_INTERNAL_ERROR;
   }
   return ROUGHTIME_SUCCESS;
 }
 
-roughtime_result_t from_base64(const uint8_t *restrict base64, uint8_t *restrict out,
+roughtime_result_t from_base64(
+    const uint8_t *restrict base64,
+    uint8_t *restrict out,
     size_t *restrict len_out) {
   if (base64 == NULL || out == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
@@ -295,7 +334,9 @@ roughtime_result_t from_base64(const uint8_t *restrict base64, uint8_t *restrict
   return ROUGHTIME_SUCCESS;
 }
 
-roughtime_result_t test_cert(const uint8_t *restrict publ, const uint8_t *restrict cert,
+roughtime_result_t test_cert(
+    const uint8_t *restrict publ,
+    const uint8_t *restrict cert,
     bool verbose) {
   uint32_t offset, len;
   uint8_t *dele = NULL;
@@ -327,7 +368,11 @@ roughtime_result_t test_cert(const uint8_t *restrict publ, const uint8_t *restri
   RETURN_IF(len != 32, ROUGHTIME_FORMAT_ERROR, "Bad public key length.");
   memcpy(pubk, dele + offset, 32);
 
-  RETURN_ON_ERROR(get_header_tag(&header, str_to_tag("MINT"), &offset, &len), "Missing MINT tag.");
+  RETURN_ON_ERROR(get_header_tag(&header,
+                                 str_to_tag("MINT"),
+                                 &offset,
+                                 &len),
+                  "Missing MINT tag.");
   RETURN_IF(len != 8, ROUGHTIME_FORMAT_ERROR, "Bad MINT length.");
   uint64_t mint = le64toh(*((uint64_t*)(dele + offset)));
 
@@ -345,7 +390,12 @@ roughtime_result_t test_cert(const uint8_t *restrict publ, const uint8_t *restri
         " (%016" PRIx64 ")\n", year, month, day, hour, minute, second, maxt);
   }
 
-  err = verify_signature(dele, 72, CERTIFICATE_CONTEXT, CERTIFICATE_CONTEXT_LEN, sig,
+  err = verify_signature(
+      dele,
+      72,
+      CERTIFICATE_CONTEXT,
+      CERTIFICATE_CONTEXT_LEN,
+      sig,
       (uint8_t*)publ);
   if (verbose) {
     if (err == ROUGHTIME_SUCCESS) {

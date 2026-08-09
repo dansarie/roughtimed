@@ -1,6 +1,6 @@
 /* roughtimed-keytool.c
 
-   Copyright (C) 2019-2025 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2026 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -21,7 +21,6 @@
 
 #include "roughtime-common.h"
 
-#include <assert.h>
 #include <endian.h>
 #include <inttypes.h>
 #include <stdbool.h>
@@ -35,8 +34,10 @@
 #define KEYLEN 32
 #define BASE64LEN 44
 
-/* Prints a help message to the console.
-   filename - the application executable filename, typically argv[0]. */
+/**
+ * Prints a help message to the console.
+ * @param filename the application executable filename, typically argv[0].
+ */
 void printhelp(const char *filename) {
   printf("Usage:\n");
   printf("  %s key  -- generate ed25519 keypair.\n", filename);
@@ -46,9 +47,11 @@ void printhelp(const char *filename) {
   printf("\n");
 }
 
-/* Creates the public key associated with a private ed25519 key.
-   priv - a 32 byte (256 bit) private ed25519 key.
-   publ - a 32 byte array where the generated public key will be returned. */
+/**
+ * Creates the public key associated with a private ed25519 key.
+ * @param priv a 32 byte (256 bit) private ed25519 key.
+ * @param publ a 32 byte array where the generated public key will be returned.
+ */
 roughtime_result_t priv_to_publ(const uint8_t *restrict priv, uint8_t *restrict publ) {
   if (priv == NULL || publ == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
@@ -60,12 +63,16 @@ roughtime_result_t priv_to_publ(const uint8_t *restrict priv, uint8_t *restrict 
     return ROUGHTIME_INTERNAL_ERROR;
   }
   EVP_PKEY_free(pkey);
-  assert(keylen == KEYLEN);
+  if (keylen != KEYLEN) {
+    return ROUGHTIME_INTERNAL_ERROR;
+  }
   return ROUGHTIME_SUCCESS;
 }
 
-/* Removes all newline characters ('\n') from a string.
-   str - a string. */
+/**
+ * Removes all newline characters ('\n') from a string.
+ * @param str a string. The newlines are removed in place.
+ */
 roughtime_result_t remove_newlines(uint8_t *str) {
   if (str == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
@@ -81,13 +88,18 @@ roughtime_result_t remove_newlines(uint8_t *str) {
   return ROUGHTIME_SUCCESS;
 }
 
-/* Converts a byte array to base64 format.
-   in - the array to convert.
-   len_in - the array length, in bytes.
-   base64 - the buffer that will hold the generated, null terminated, base64 string.
-   len_base64 - size of the base64 output buffer. Must be at least
-       floor(len_in / 48) * 65 + ceil((len_in mod 48) / 3) * 4 + 2. */
-roughtime_result_t to_base64(const uint8_t *restrict in, size_t len_in, uint8_t *restrict base64,
+/**
+ * Converts a byte array to base64 format.
+ * @param in the array to convert.
+ * @param len_in the array length, in bytes.
+ * @param base64 the buffer that will hold the generated, null terminated, base64 string.
+ * @param len_base64 size of the base64 output buffer. Must be at least
+ * floor(len_in / 48) * 65 + ceil((len_in mod 48) / 3) * 4 + 2.
+ */
+roughtime_result_t to_base64(
+    const uint8_t *restrict in,
+    size_t len_in,
+    uint8_t *restrict base64,
     size_t len_base64) {
   if (in == NULL || base64 == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
@@ -118,16 +130,20 @@ roughtime_result_t to_base64(const uint8_t *restrict in, size_t len_in, uint8_t 
   return remove_newlines(base64);
 }
 
-/* Converts a 32 byte key to base64 format.
-   key - a 32 byte (256 bit) key.
-   base64 - an outbut buffer, at least 46 bytes large. */
+/**
+ * Converts a 32 byte key to base64 format.
+ * @param key a 32 byte (256 bit) key.
+ * @param base64 an outbut buffer, at least 46 bytes large.
+ */
 roughtime_result_t key_to_base64(const uint8_t *restrict key, uint8_t *restrict base64) {
   return to_base64(key, KEYLEN, base64, BASE64LEN + 2);
 }
 
-/* Parses a base64 encoded key.
-   base64 - a base64 encoded 32 byte key.
-   key - 32 byte array that will hold the parsed key. */
+/**
+ * Parses a base64 encoded key.
+ * @param base64 a base64-encoded 32 byte key.
+ * @param key 32 byte array that will hold the parsed key.
+ */
 roughtime_result_t base64_to_key(const uint8_t *restrict base64, uint8_t *restrict key) {
   size_t keylen = KEYLEN + 1;
   roughtime_result_t res;
@@ -142,9 +158,11 @@ roughtime_result_t base64_to_key(const uint8_t *restrict base64, uint8_t *restri
   return ROUGHTIME_SUCCESS;
 }
 
-/* Gets a line from stdin.
-   line - an output buffer.
-   len - the size of the output buffer. */
+/**
+ * Gets a line from stdin.
+ * @param line an output buffer.
+ * @param len the size of the output buffer.
+ */
 roughtime_result_t get_line_stdin(uint8_t *line, size_t len) {
   uint8_t *lineptr = NULL;
   size_t linelen = 0;
@@ -171,8 +189,11 @@ roughtime_result_t get_line_stdin(uint8_t *line, size_t len) {
   return ROUGHTIME_SUCCESS;
 }
 
-/* Prompts the user to input a base64 encoded key, gets it from stdin and parses it.
-   key - a 32 byte buffer that will hold the parsed key. */
+/**
+ * Prompts the user to input a base64 encoded key, gets it from stdin and parses it.
+ * @param prompt a zero-terminated string with the text to prompt the user with.
+ * @param key a 32 byte buffer that will hold the parsed key.
+ */
 roughtime_result_t get_key(const char *restrict prompt, uint8_t *restrict key) {
   if (prompt == NULL || key == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
@@ -194,12 +215,15 @@ roughtime_result_t get_key(const char *restrict prompt, uint8_t *restrict key) {
   return ROUGHTIME_SUCCESS;
 }
 
-/* Validates a date between 2001-01-01 and 2099-12-31. Optionally returns the day of year.
-   year - a year (2001-2099).
-   month - a month (1-12).
-   day - a day (1-31).
-   yday - pointer to a variable that will hold the day of year (1 January = 1) of the date.
-       May be NULL. */
+/**
+ * Validates a date between 2001-01-01 and 2099-12-31. Optionally returns the day of year (Julian
+ * date).
+ * @param year a year (2001-2099).
+ * @param month a month (1-12).
+ * @param day a day (1-31).
+ * @param yday pointer to a variable that will hold the day of year (1 January = 1) of the date.
+ * May be NULL.
+ */
 bool validate_date(int year, int month, int day, int *yday) {
   if (year <= 2000 || year >= 2100) {
     return false;
@@ -224,10 +248,13 @@ bool validate_date(int year, int month, int day, int *yday) {
   return true;
 }
 
-/* Prompts the user to enter a date, gets it from stdin, validates it and returns year, month, and
-   day.
-   timestamp UNIX timestamp representation of the first second of the date entered by the user.
-   prompt    prompt to display when getting date. */
+/**
+ * Prompts the user to enter a date, gets a date in the format YYYY-MM-DD from stdin, validates it
+ * and returns year, month, and day.
+ * @param timestamp UNIX timestamp representation of the first second of the date entered by the
+ * user.
+ * @param prompt a zero-terminated string with prompt to display when getting the date.
+ */
 roughtime_result_t get_date(time_t *restrict timestamp, const char *restrict prompt) {
   if (timestamp == NULL || prompt == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
@@ -253,8 +280,10 @@ error:
   return err;
 }
 
-/* Prompts the user to input a base64 encoded CERT packet, gets it from stdin and parses it.
-   cert - a 152 byte buffer that will hold the parsed key */
+/**
+ * Prompts the user to input a base64 encoded CERT packet, gets it from stdin and parses it.
+ * @param cert a 152 byte buffer that will hold the parsed key
+ */
 roughtime_result_t get_cert(uint8_t *cert) {
   printf("Enter CERT packet: ");
   fflush(stdout);
@@ -276,7 +305,11 @@ roughtime_result_t get_cert(uint8_t *cert) {
   return ROUGHTIME_SUCCESS;
 }
 
-roughtime_result_t parsecert() {
+/**
+ * Prompts the user for a long-term public key and a certificate. It then validates the certificate,
+ * writing the results to standard out.
+ */
+roughtime_result_t parsecert(void) {
   uint8_t publ[32];
   uint8_t cert[152];
   roughtime_header_t header;
@@ -292,8 +325,10 @@ error:
   return err;
 }
 
-/* Generate a delegate key certificate. */
-roughtime_result_t gendele() {
+/**
+ * Lets the user generate a delegate key certificate.
+ */
+roughtime_result_t gendele(void) {
   uint8_t priv[KEYLEN];
   time_t ts1, ts2;
   roughtime_result_t res;
@@ -333,7 +368,10 @@ roughtime_result_t gendele() {
   /* Generate the DELE packet. */
   uint8_t dele_packet[72];
   uint32_t packet_size = 72;
-  if ((res = create_roughtime_packet(dele_packet, &packet_size, 3,
+  if ((res = create_roughtime_packet(
+      dele_packet,
+      &packet_size,
+      3,
       "PUBK", 32, dele_publ,
       "MINT", 8, &mint,
       "MAXT", 8, &maxt)) != ROUGHTIME_SUCCESS) {
@@ -350,7 +388,10 @@ roughtime_result_t gendele() {
   /* Create CERT packet. */
   uint8_t cert_packet[152];
   packet_size = 152;
-  if ((res = create_roughtime_packet(cert_packet, &packet_size, 2,
+  if ((res = create_roughtime_packet(
+      cert_packet,
+      &packet_size,
+      2,
       "SIG", 64, sig,
       "DELE", 72, dele_packet)) != ROUGHTIME_SUCCESS) {
     fprintf(stderr, "Error when creating CERT packet.\n");
@@ -386,8 +427,10 @@ roughtime_result_t gendele() {
   return ROUGHTIME_SUCCESS;
 }
 
-/* Generate the public key for a private key. */
-roughtime_result_t genpub() {
+/**
+ * Lets the user generate the public key from a private key.
+ */
+roughtime_result_t genpub(void) {
   uint8_t priv[KEYLEN];
   uint8_t publ[KEYLEN];
   uint8_t b64publ[BASE64LEN + 2];
@@ -403,8 +446,10 @@ roughtime_result_t genpub() {
   return ROUGHTIME_SUCCESS;
 }
 
-/* Generate an ed25519 keypair. */
-roughtime_result_t keygen() {
+/**
+ * Generates a ed25519 keypair and prints it to standard out.
+ */
+roughtime_result_t keygen(void) {
   uint8_t priv[KEYLEN];
   if (RAND_priv_bytes(priv, KEYLEN) != 1) {
     fprintf(stderr, "Could not generate 32 random bytes for private key.\n");
@@ -436,8 +481,12 @@ roughtime_result_t keygen() {
   return 0;
 }
 
+/**
+ * Keytool entry function.
+ * @param argc number of arguments.
+ * @param argv argument buffer.
+ */
 int main(int argc, char *argv[]) {
-
   if (argc != 2) {
     printhelp(argv[0]);
     return 1;

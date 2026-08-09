@@ -1,6 +1,6 @@
 /* config.h
 
-   Copyright (C) 2019-2025 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2026 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -20,8 +20,22 @@
 
 #include "roughtime-common.h"
 
+/**
+ * Replaces the current global configuration state with a configuration read from a file.
+ * @param filename the path of the configuration file to read.
+ */
 roughtime_result_t read_config_file(const char *filename);
+
+/**
+ * Reads a configuration value from the global configuration state.
+ * @param key the key to get the configured value for.
+ * @param value return pointer for the requested configuration value.
+ * @return ROUGHTIME_SUCCESS if the key is found in the global configuration state and
+ * ROUGHTIME_NOT_FOUND otherwise.
+ */
 roughtime_result_t get_config(const char *restrict key, const char **restrict value);
-void clear_config();
+
+/** Securely clears the global configuration state. */
+void clear_config(void);
 
 #endif /* __CONFIG_H__ */

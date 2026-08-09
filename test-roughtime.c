@@ -1,6 +1,6 @@
 /* test-roughtime.c
 
-   Copyright (C) 2019-2025 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2026 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -32,14 +32,20 @@
 #define PACKET_SIZE (844)
 #define ROUGHTIME_VERSION 0x8000000C
 
-bool quit = false;
+bool g_quit = false; /**< Set to true by the signal handler to indicate that all threads should
+                          quit. */
 
+/** Catches signals and sets the global quit variable. */
 void signal_handler(int signal) {
   (void)signal;
-  quit = true;
+  g_quit = true;
 }
 
-uint64_t xorshift1024() {
+/**
+ * Generates a random 64-bit value using the xorshift1024 algorithm. The algorithm is seeded from
+ * /dev/urandom on the first call.
+ */
+uint64_t xorshift1024(void) {
   static bool init = false;
   static uint64_t rand[16];
   static int p = 0;
@@ -63,8 +69,12 @@ uint64_t xorshift1024() {
   return rand[p] * 1181783497276652981U;
 }
 
+/**
+ * Entry function for test-roughtime - a small tool for load testing Roughtime servers.
+ * @param argc number of arguments.
+ * @param argv argument buffer.
+ */
 int main(int argc, char *argv[]) {
-
   const char *host = NULL;
   const char *port = NULL;
   bool tcp = false;
@@ -142,7 +152,7 @@ int main(int argc, char *argv[]) {
   }
 
   uint64_t num = 0;
-  while (!quit) {
+  while (!g_quit) {
     for (int i = 0; i < 4; i++) {
       uint64_t rand = xorshift1024();
       memcpy(packet + nonc_offset + i * sizeof(uint64_t), &rand, sizeof(uint64_t));

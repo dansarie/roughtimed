@@ -1,6 +1,6 @@
 /* config.c
 
-   Copyright (C) 2019-2015 Marcus Dansarie <marcus@dansarie.se>
+   Copyright (C) 2019-2016 Marcus Dansarie <marcus@dansarie.se>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -25,15 +25,19 @@
 
 #define MAX_CONFIG_ITEMS 100
 #define MAX_CONFIG_STRING_SIZE 1000
+
+/** Represents a key-value pair in the configuration file. */
 typedef struct {
   char key[MAX_CONFIG_STRING_SIZE];
   char value[MAX_CONFIG_STRING_SIZE];
 } roughtime_config_item_t;
-roughtime_config_item_t configuration_items[MAX_CONFIG_ITEMS];
-int num_config_items = 0;
+
+/** Global state for parsed configuration file items. */
+roughtime_config_item_t g_configuration_items[MAX_CONFIG_ITEMS];
+/** Number of items in g_configuration_items. */
+int g_num_config_items = 0;
 
 roughtime_result_t read_config_file(const char *filename) {
-
   if (filename == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
@@ -46,7 +50,8 @@ roughtime_result_t read_config_file(const char *filename) {
   char *line = NULL;
   size_t linelen = 0;
 
-  while (getline(&line, &linelen, fp) >= 0 && num_config_items < MAX_CONFIG_ITEMS) {
+  clear_config();
+  while (getline(&line, &linelen, fp) >= 0 && g_num_config_items < MAX_CONFIG_ITEMS) {
     trim(line);
     if (strlen(line) == 0 || line[0] == '#') {
       continue;
@@ -69,11 +74,18 @@ roughtime_result_t read_config_file(const char *filename) {
     }
     size_t i;
     for (i = 0; key[i] != '\0'; i++) {
-      configuration_items[num_config_items].key[i] = tolower(key[i]);
+      g_configuration_items[g_num_config_items].key[i] = tolower(key[i]);
     }
-    configuration_items[num_config_items].key[i] = '\0';
-    strcpy(configuration_items[num_config_items].value, value);
-    num_config_items += 1;
+    g_configuration_items[g_num_config_items].key[i] = '\0';
+    for (int i = 0; i < g_num_config_items; i++) {
+      if (strcmp(g_configuration_items[i].key,
+          g_configuration_items[g_num_config_items].key) == 0) {
+        fprintf(stderr, "Duplicate configuration key %s ignored.\n", g_configuration_items[i].key);
+        continue;
+      }
+    }
+    strcpy(g_configuration_items[g_num_config_items].value, value);
+    g_num_config_items += 1;
   }
 
   free(line);
@@ -83,7 +95,6 @@ roughtime_result_t read_config_file(const char *filename) {
 }
 
 roughtime_result_t get_config(const char *restrict key, const char **restrict value) {
-
   if (key == NULL || value == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
@@ -93,15 +104,15 @@ roughtime_result_t get_config(const char *restrict key, const char **restrict va
     lc_key[i] = tolower(key[i]);
   }
   lc_key[keylen] = '\0';
-  for (int i = 0; i < num_config_items; i++) {
-    if (strcmp(configuration_items[i].key, lc_key) == 0) {
-      *value = &configuration_items[i].value[0];
+  for (int i = 0; i < g_num_config_items; i++) {
+    if (strcmp(g_configuration_items[i].key, lc_key) == 0) {
+      *value = &g_configuration_items[i].value[0];
       return ROUGHTIME_SUCCESS;
     }
   }
   return ROUGHTIME_NOT_FOUND;
 }
 
-void clear_config() {
-  explicit_bzero(configuration_items, sizeof(roughtime_config_item_t) * MAX_CONFIG_ITEMS);
+void clear_config(void) {
+  explicit_bzero(g_configuration_items, sizeof(roughtime_config_item_t) * MAX_CONFIG_ITEMS);
 }
