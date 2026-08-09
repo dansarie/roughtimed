@@ -40,9 +40,9 @@ make
 
 ### roughtimed.conf
 
-The file `roughtimed.conf` contains the configuration of the Roughtimed server. Its default location
-is `/etc/roughtimed.conf`, but an alternative path can be specified using the command line flag
-`-f`.
+The file `conf/roughtimed.conf` contains the configuration of the Roughtimed server. Its default
+location is `/etc/roughtimed.conf`, but an alternative path can be specified using the command line
+flag `-f`.
 
 Since the configuration file contains sensitive values, it must not be readable or writable to
 unauthorized users. To protect against this, Roughtimed will quit and display an error if the

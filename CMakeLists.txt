@@ -25,10 +25,18 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
 
-add_executable(roughtimed config.c roughtimed.c roughtime-common.c)
-add_executable(roughtime-keytool roughtime-keytool.c roughtime-common.c)
-add_executable(roughtime-test test-roughtime.c roughtime-common.c)
-add_executable(testtimex testtimex.c)
+add_executable(roughtimed
+               src/config.c
+               src/roughtimed.c
+               src/roughtime-common.c)
+add_executable(roughtime-keytool
+               src/roughtime-keytool.c
+               src/roughtime-common.c)
+add_executable(roughtime-test
+               src/test-roughtime.c
+               src/roughtime-common.c)
+add_executable(testtimex
+               src/testtimex.c)
 target_link_libraries(roughtimed ${CMAKE_THREAD_LIBS_INIT})
 target_link_libraries(roughtimed OpenSSL::SSL m)
 target_link_libraries(roughtime-keytool OpenSSL::SSL)
