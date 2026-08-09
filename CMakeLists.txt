@@ -67,5 +67,8 @@ add_custom_target(test
                  COMMAND gcovr --root ${CMAKE_SOURCE_DIR}
                  DEPENDS test_roughtime
                  WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+add_custom_target(infer
+                  COMMAND infer run --compilation-database build/compile_commands.json
+                  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 install(TARGETS roughtimed roughtime-keytool DESTINATION bin)
