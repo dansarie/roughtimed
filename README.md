@@ -10,7 +10,7 @@ Additionally, chaining of responses from different servers enables clients to cr
 proofs of malfeasance by servers.
 
 Currently, Roughtimed implements the version of the Roughtime protocol described by
-[draft-ietf-ntp-roughtime-14](https://datatracker.ietf.org/doc/html/draft-ietf-ntp-roughtime-14).
+[draft-ietf-ntp-roughtime-19](https://datatracker.ietf.org/doc/html/draft-ietf-ntp-roughtime-19).
 
 ## Dependencies
 
