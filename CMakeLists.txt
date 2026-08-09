@@ -21,28 +21,51 @@ cmake_minimum_required (VERSION 3.10)
 project(ROUGHTIMED VERSION 1.3.0 LANGUAGES C)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_FLAGS "-march=native -Ofast -g -Wall -Wpedantic -Wextra -Werror")
+
+add_definitions(-DVERSION="${ROUGHTIMED_VERSION}")
 
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(CHECK REQUIRED check)
 
 add_executable(roughtimed
                src/config.c
                src/roughtimed.c
-               src/roughtime-common.c)
-add_executable(roughtime-keytool
-               src/roughtime-keytool.c
-               src/roughtime-common.c)
-add_executable(roughtime-test
-               src/test-roughtime.c
-               src/roughtime-common.c)
-add_executable(testtimex
-               src/testtimex.c)
+               src/roughtime_common.c)
 target_link_libraries(roughtimed ${CMAKE_THREAD_LIBS_INIT})
 target_link_libraries(roughtimed OpenSSL::SSL m)
-target_link_libraries(roughtime-keytool OpenSSL::SSL)
-target_link_libraries(roughtime-test OpenSSL::SSL)
-add_definitions(-DVERSION="${ROUGHTIMED_VERSION}")
 
-set(CMAKE_C_FLAGS "-march=native -Ofast -g -Wall -Wpedantic -Wextra -Werror")
+add_executable(roughtime-keytool
+               src/roughtime-keytool.c
+               src/roughtime_common.c)
+target_link_libraries(roughtime-keytool OpenSSL::SSL)
+
+add_executable(roughtime-stress-tester
+               src/roughtime-stress-tester.c
+               src/roughtime_common.c)
+target_link_libraries(roughtime-stress-tester OpenSSL::SSL)
+
+add_executable(testtimex
+               src/testtimex.c)
+
+add_executable(test_roughtime
+               src/config.c
+               src/roughtime_common.c
+               tests/test_config.c
+               tests/test_roughtime.c)
+target_link_libraries(test_roughtime ${CHECK_LIBRARIES})
+target_link_libraries(test_roughtime OpenSSL::SSL)
+target_compile_options(test_roughtime PRIVATE --coverage)
+target_link_options(test_roughtime PRIVATE --coverage)
+add_custom_target(test
+                 COMMAND test_roughtime
+                 COMMAND mkdir -p coverage
+                 COMMAND gcovr --root ${CMAKE_SOURCE_DIR}
+                 DEPENDS test_roughtime
+                 WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 
 install(TARGETS roughtimed roughtime-keytool DESTINATION bin)

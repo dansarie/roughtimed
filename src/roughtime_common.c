@@ -1,4 +1,4 @@
-/* roughtime-common.c
+/* roughtime_common.c
 
    Copyright (C) 2019-2026 Marcus Dansarie <marcus@dansarie.se>
 
@@ -15,7 +15,10 @@
    You should have received a copy of the GNU General Public License
    along with this program. If not, see <http://www.gnu.org/licenses/>. */
 
-#include "roughtime-common.h"
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <ctype.h>
 #include <endian.h>
 #include <inttypes.h>
@@ -23,6 +26,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <openssl/evp.h>
+
+#include "roughtime_common.h"
 
 const uint32_t CERTIFICATE_CONTEXT_LEN = 34;
 const uint32_t SIGNED_RESPONSE_CONTEXT_LEN = 32;

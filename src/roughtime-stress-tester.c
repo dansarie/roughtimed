@@ -1,4 +1,4 @@
-/* test-roughtime.c
+/* roughtime-stress-tester.c
 
    Copyright (C) 2019-2026 Marcus Dansarie <marcus@dansarie.se>
 
@@ -15,7 +15,10 @@
    You should have received a copy of the GNU General Public License
    along with this program. If not, see <http://www.gnu.org/licenses/>. */
 
-#include "roughtime-common.h"
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -28,6 +31,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+
+#include "roughtime_common.h"
 
 #define PACKET_SIZE (844)
 #define ROUGHTIME_VERSION 0x8000000C
@@ -70,7 +75,7 @@ uint64_t xorshift1024(void) {
 }
 
 /**
- * Entry function for test-roughtime - a small tool for load testing Roughtime servers.
+ * Entry function for roughtime-stress-tester - a small tool for load testing Roughtime servers.
  * @param argc number of arguments.
  * @param argv argument buffer.
  */

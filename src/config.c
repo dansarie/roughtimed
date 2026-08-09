@@ -15,13 +15,17 @@
    You should have received a copy of the GNU General Public License
    along with this program. If not, see <http://www.gnu.org/licenses/>. */
 
-#include "config.h"
-#include "roughtime-common.h"
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
 
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "config.h"
+#include "roughtime_common.h"
 
 #define MAX_CONFIG_ITEMS 100
 #define MAX_CONFIG_STRING_SIZE 1000
@@ -69,7 +73,9 @@ roughtime_result_t read_config_file(const char *filename) {
       value = line + p + 1;
       trim(value);
     }
-    if (strlen(key) > MAX_CONFIG_STRING_SIZE - 1 || strlen(value) > MAX_CONFIG_STRING_SIZE - 1) {
+    if (strlen(value) == 0
+        || strlen(key) > MAX_CONFIG_STRING_SIZE - 1
+        || strlen(value) > MAX_CONFIG_STRING_SIZE - 1) {
       continue;
     }
     size_t i;
@@ -98,6 +104,7 @@ roughtime_result_t get_config(const char *restrict key, const char **restrict va
   if (key == NULL || value == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
+  *value = NULL;
   size_t keylen = strlen(key);
   char lc_key[keylen + 1];
   for (size_t i = 0; i < keylen; i++) {
@@ -115,4 +122,5 @@ roughtime_result_t get_config(const char *restrict key, const char **restrict va
 
 void clear_config(void) {
   explicit_bzero(g_configuration_items, sizeof(roughtime_config_item_t) * MAX_CONFIG_ITEMS);
+  g_num_config_items = 0;
 }

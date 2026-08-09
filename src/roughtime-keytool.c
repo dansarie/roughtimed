@@ -19,8 +19,6 @@
 #define _GNU_SOURCE
 #endif
 
-#include "roughtime-common.h"
-
 #include <endian.h>
 #include <inttypes.h>
 #include <stdbool.h>
@@ -30,6 +28,8 @@
 #include <openssl/bio.h>
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+
+#include "roughtime_common.h"
 
 #define KEYLEN 32
 #define BASE64LEN 44

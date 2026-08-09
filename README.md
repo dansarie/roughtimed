@@ -17,6 +17,12 @@ Currently, Roughtimed implements the version of the Roughtime protocol described
 * [CMake](https://github.com/Kitware/CMake) (for build)
 * [OpenSSL](https://github.com/openssl/openssl) (for SHA-512 and Ed25519)
 
+### Testing
+
+* [Check](https://github.com/libcheck/check)
+* [gcov](https://gcc.gnu.org/onlinedocs/gcc/Gcov.html)
+* [gcovr](https://github.com/gcovr/gcovr)
+
 ## Build
 
 ```
@@ -25,6 +31,11 @@ mkdir build
 cd build
 cmake ..
 make
+```
+
+### Test
+```
+make test
 ```
 
 ## Configure

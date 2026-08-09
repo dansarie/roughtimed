@@ -18,7 +18,7 @@
 #ifndef __CONFIG_H__
 #define __CONFIG_H__
 
-#include "roughtime-common.h"
+#include "roughtime_common.h"
 
 /**
  * Replaces the current global configuration state with a configuration read from a file.

@@ -15,10 +15,9 @@
    You should have received a copy of the GNU General Public License
    along with this program. If not, see <http://www.gnu.org/licenses/>. */
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
-
-#include "config.h"
-#include "roughtime-common.h"
+#endif
 
 #include <endian.h>
 #include <errno.h>
@@ -37,6 +36,13 @@
 #include <openssl/sha.h>
 #include <sys/stat.h>
 #include <sys/timex.h>
+
+#include "config.h"
+#include "roughtime_common.h"
+
+#ifndef VERSION
+#define VERSION "(unknown)"
+#endif
 
 #define MAX_PATH_LEN 12
 /*

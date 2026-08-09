@@ -1,4 +1,4 @@
-/* roughtime-common.h
+/* roughtime_common.h
 
    Copyright (C) 2019-2026 Marcus Dansarie <marcus@dansarie.se>
 
@@ -43,9 +43,8 @@
  */
 #define RETURN_IF(C, E, M)\
 if (C) {\
-  fprintf(stderr, M);\
-  fprintf(stderr, "\n");\
-  err = E;\
+  fprintf(stderr, "%s\n", (M));\
+  err = (E);\
   goto error;\
 }
 
@@ -57,10 +56,10 @@ if (C) {\
  */
 #define RETURN_ON_ERROR(E, M)\
 {\
-  roughtime_result_t e = E;\
+  roughtime_result_t e = (E);\
   if (e != ROUGHTIME_SUCCESS) {\
     err = e;\
-    fprintf(stderr, M);\
+    fprintf(stderr, "%s\n", (M));\
     goto error;\
   }\
 }
