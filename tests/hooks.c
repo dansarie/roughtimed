@@ -1,4 +1,4 @@
-/* test_roughtime.c
+/* hooks.h
 
    Copyright (C) 2019-2016 Marcus Dansarie <marcus@dansarie.se>
 
@@ -19,30 +19,21 @@
 #define _GNU_SOURCE
 #endif
 
-#include <check.h>
+#include <stdint.h>
+#include <time.h>
 
-/* Adds the tests defined in test_config.c. */
-void test_config_add(Suite *s);
-/* Adds the tests defined in test_roughtime_common.c. */
-void test_roughtime_common_add(Suite *s);
+int64_t g_gmtime_r_calls  = 0;  /**< Counts number of calls to gmtime_r. */
+int64_t g_gmtime_r_failon = -1; /**< Which call to gmtime_r to fail on. */
 
-/**
- * Creates the Roughtime test suite.
- */
-Suite* roughtime_suite(void) {
-  Suite *s = suite_create("Roughtime");
-  test_config_add(s);
-  test_roughtime_common_add(s);
-  return s;
+struct tm *test_gmtime_r(const time_t *restrict timep, struct tm *restrict result) {
+  g_gmtime_r_calls += 1;
+  if (g_gmtime_r_failon == 0 || g_gmtime_r_calls == g_gmtime_r_failon) {
+    return NULL;
+  }
+  return gmtime_r(timep, result);
 }
 
-int main(int argc, char *argv[]) {
-  (void)argc;
-  (void)argv;
-  Suite *s = roughtime_suite();
-  SRunner *sr = srunner_create(s);
-  srunner_run_all(sr, CK_VERBOSE);
-  int num_failed = srunner_ntests_failed(sr);
-  srunner_free(sr);
-  return num_failed;
+void fail_gmtime_r(int64_t i) {
+  g_gmtime_r_calls = 0;
+  g_gmtime_r_failon = i;
 }

@@ -43,7 +43,7 @@ void printhelp(const char *filename) {
   printf("  %s key  -- generate ed25519 keypair.\n", filename);
   printf("  %s pub  -- calculate public key from a private key.\n", filename);
   printf("  %s dele -- generate delegate certificate.\n", filename);
-  printf("  %s cert -- parse a base64 encoded CERT packet.\n", filename);
+  printf("  %s cert -- parse a base64 encoded CERT message.\n", filename);
   printf("\n");
 }
 
@@ -281,11 +281,11 @@ error:
 }
 
 /**
- * Prompts the user to input a base64 encoded CERT packet, gets it from stdin and parses it.
+ * Prompts the user to input a base64 encoded CERT message, gets it from stdin and parses it.
  * @param cert a 152 byte buffer that will hold the parsed key
  */
 roughtime_result_t get_cert(uint8_t *cert) {
-  printf("Enter CERT packet: ");
+  printf("Enter CERT message: ");
   fflush(stdout);
   uint8_t base64[205];
   roughtime_result_t res;
@@ -298,7 +298,7 @@ roughtime_result_t get_cert(uint8_t *cert) {
     return res;
   }
   if (len != 152) {
-    fprintf(stderr, "Bad CERT packet size: %zu.\n", len);
+    fprintf(stderr, "Bad CERT message size: %zu.\n", len);
     return ROUGHTIME_FORMAT_ERROR;
   }
   memcpy(cert, buf, 152);
@@ -365,64 +365,64 @@ roughtime_result_t gendele(void) {
     return res;
   }
 
-  /* Generate the DELE packet. */
-  uint8_t dele_packet[72];
-  uint32_t packet_size = 72;
-  if ((res = create_roughtime_packet(
-      dele_packet,
-      &packet_size,
+  /* Generate the DELE message. */
+  uint8_t dele_message[72];
+  uint32_t message_size = 72;
+  if ((res = create_roughtime_message(
+      dele_message,
+      &message_size,
       3,
       "PUBK", 32, dele_publ,
       "MINT", 8, &mint,
       "MAXT", 8, &maxt)) != ROUGHTIME_SUCCESS) {
-    fprintf(stderr, "Error when creating DELE packet.\n");
+    fprintf(stderr, "Error when creating DELE message.\n");
     explicit_bzero(priv, KEYLEN);
     explicit_bzero(dele_priv, KEYLEN);
     return res;
   }
 
-  /* Sign DELE packet. */
+  /* Sign DELE message. */
   uint8_t sig[64];
-  sign((uint8_t*)dele_packet, 72, CERTIFICATE_CONTEXT, CERTIFICATE_CONTEXT_LEN, sig, priv);
+  sign((uint8_t*)dele_message, 72, CERTIFICATE_CONTEXT, CERTIFICATE_CONTEXT_LEN, sig, priv);
 
-  /* Create CERT packet. */
-  uint8_t cert_packet[152];
-  packet_size = 152;
-  if ((res = create_roughtime_packet(
-      cert_packet,
-      &packet_size,
+  /* Create CERT message. */
+  uint8_t cert_message[152];
+  message_size = 152;
+  if ((res = create_roughtime_message(
+      cert_message,
+      &message_size,
       2,
       "SIG", 64, sig,
-      "DELE", 72, dele_packet)) != ROUGHTIME_SUCCESS) {
-    fprintf(stderr, "Error when creating CERT packet.\n");
+      "DELE", 72, dele_message)) != ROUGHTIME_SUCCESS) {
+    fprintf(stderr, "Error when creating CERT message.\n");
     explicit_bzero(dele_priv, KEYLEN);
-    explicit_bzero(cert_packet, 152);
+    explicit_bzero(cert_message, 152);
     return res;
   }
 
-  /* Convert delegate private key and CERT packet to base64. */
+  /* Convert delegate private key and CERT message to base64. */
   uint8_t b64dele_priv[BASE64LEN + 2];
   if ((res = key_to_base64(dele_priv, b64dele_priv)) != ROUGHTIME_SUCCESS) {
     fprintf(stderr, "Error when performing base64 encoding.\n");
     explicit_bzero(dele_priv, KEYLEN);
-    explicit_bzero(cert_packet, 152);
+    explicit_bzero(cert_message, 152);
     explicit_bzero(b64dele_priv, BASE64LEN + 2);
     return res;
   }
   explicit_bzero(dele_priv, KEYLEN);
   uint8_t b64cert[209];
-  if ((res = to_base64((uint8_t*)cert_packet, sizeof(uint32_t) * 38, b64cert, 209))
+  if ((res = to_base64((uint8_t*)cert_message, sizeof(uint32_t) * 38, b64cert, 209))
       != ROUGHTIME_SUCCESS) {
     fprintf(stderr, "Error when performing base64 encoding.\n");
     explicit_bzero(b64dele_priv, BASE64LEN + 2);
-    explicit_bzero(cert_packet, 152);
+    explicit_bzero(cert_message, 152);
     explicit_bzero(b64cert, 209);
     return res;
   }
   printf("\nDelegate private key: %s\n", b64dele_priv);
-  printf("CERT packet: %s\n", b64cert);
+  printf("CERT message: %s\n", b64cert);
   explicit_bzero(b64dele_priv, BASE64LEN + 2);
-  explicit_bzero(cert_packet, 152);
+  explicit_bzero(cert_message, 152);
   explicit_bzero(b64cert, 209);
   return ROUGHTIME_SUCCESS;
 }

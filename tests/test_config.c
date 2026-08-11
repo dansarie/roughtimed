@@ -175,7 +175,7 @@ END_TEST
 /**
  * Set up the test fixture by creating a temporary configuration file and allocating a buffer.
  */
-void setup(void) {
+static void setup(void) {
   strcpy(g_tmpname, "test_roughtime_XXXXXX.conf");
   mkstemps(g_tmpname, 5);
   g_buf = malloc(10000);
@@ -185,7 +185,7 @@ void setup(void) {
 /**
  * Tear down the text fixture by deleting the temporary configuration file and freeing the buffer.
  */
-void teardown(void) {
+static void teardown(void) {
   unlink(g_tmpname);
   free(g_buf);
 }

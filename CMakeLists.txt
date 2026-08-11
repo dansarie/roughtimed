@@ -23,7 +23,7 @@ project(ROUGHTIMED VERSION 1.3.0 LANGUAGES C)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_FLAGS "-march=native -Ofast -g -Wall -Wpedantic -Wextra -Werror")
+set(CMAKE_C_FLAGS "-march=native -O3 -g -Wall -Wpedantic -Wextra -Werror")
 
 add_definitions(-DVERSION="${ROUGHTIMED_VERSION}")
 
@@ -52,21 +52,45 @@ target_link_libraries(roughtime-stress-tester OpenSSL::SSL)
 add_executable(testtimex
                src/testtimex.c)
 
-add_executable(test_roughtime
-               src/config.c
-               src/roughtime_common.c
-               tests/test_config.c
-               tests/test_roughtime.c)
-target_link_libraries(test_roughtime ${CHECK_LIBRARIES})
-target_link_libraries(test_roughtime OpenSSL::SSL)
-target_compile_options(test_roughtime PRIVATE --coverage)
+set(TEST_SOURCES
+    src/config.c
+    src/roughtime_common.c
+    tests/hooks.c
+    tests/test_config.c
+    tests/test_roughtime.c
+    tests/test_roughtime_common.c)
+
+function(add_test_executable name)
+    add_executable(${name}
+                   src/config.c
+                   src/roughtime_common.c
+                   tests/hooks.c
+                   tests/test_config.c
+                   tests/test_roughtime.c
+                   tests/test_roughtime_common.c)
+    target_link_libraries(${name} ${CHECK_LIBRARIES})
+    target_link_libraries(${name} OpenSSL::SSL)
+    target_compile_options(${name} PRIVATE -DTESTING)
+endfunction()
+
+add_test_executable(test_roughtime)
+target_compile_options(test_roughtime PRIVATE -O0 --coverage)
 target_link_options(test_roughtime PRIVATE --coverage)
+
+add_test_executable(test_roughtime_asan)
+target_compile_options(test_roughtime_asan PRIVATE -O0 -fsanitize=address,undefined -fno-omit-frame-pointer)
+target_link_options(test_roughtime_asan PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+
 add_custom_target(test
                  COMMAND test_roughtime
                  COMMAND mkdir -p coverage
                  COMMAND gcovr --root ${CMAKE_SOURCE_DIR}
-                 DEPENDS test_roughtime
+                 COMMAND test_roughtime_asan
+                 DEPENDS test_roughtime test_roughtime_asan
                  WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+set_property(TARGET test APPEND PROPERTY
+             ADDITIONAL_CLEAN_FILES "${CMAKE_BINARY_DIR}/coverage")
+
 add_custom_target(infer
                   COMMAND infer run --compilation-database build/compile_commands.json
                   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

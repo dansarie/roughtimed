@@ -111,31 +111,31 @@ void trim(char *str);
  */
 uint32_t str_to_tag(const char *str);
 
-/** Creates a Roughtime packet from a number of tags. Returns ROUGHTIME_SUCCESS when successful.
- * @param packet an output buffer.
- * @param size should contain the size (in bytes) of the packet buffer when called. Contains the
- * size (in bytes) of the generated packet on return.
- * @param num_tags number of tags in the packet.
+/** Creates a Roughtime message from a number of tags. Returns ROUGHTIME_SUCCESS when successful.
+ * @param message an output buffer.
+ * @param size should contain the size (in bytes) of the message buffer when called. Contains the
+ * size (in bytes) of the generated message on return.
+ * @param num_tags number of tags in the message.
  * @param ... three varargs are included for each tag indicated by the num_tags parameter. Tags must
  * be sorted by numeric value. 1. A zero-terminated string with the tag name. 2. A field size (in
  * bytes) of the tag data as a uint32_t. The field size must be divisible by 4. 3. A pointer to the
  * tag data.
  */
-roughtime_result_t create_roughtime_packet(
-    uint8_t *restrict packet,
+roughtime_result_t create_roughtime_message(
+    uint8_t *restrict message,
     uint32_t *restrict size,
     uint32_t num_tags,
     ...);
 
 /**
- * Parses the header of a Roughtime packet.
- * @param packet abuffer containing a Roughtime packet.
- * @param packet_len the length (in bytes) of the packet.
+ * Parses the header of a Roughtime message.
+ * @param message a buffer containing a Roughtime message.
+ * @param message_len the length (in bytes) of the message.
  * @param header a pointer to a roughtime_header_t where the parsed header will be stored.
  */
 roughtime_result_t parse_roughtime_header(
-    const uint8_t *restrict packet,
-    uint32_t packet_len,
+    const uint8_t *restrict message,
+    uint32_t message_len,
     roughtime_header_t *restrict header);
 
 /**

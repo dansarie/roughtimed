@@ -100,7 +100,7 @@ int main(int argc, char *argv[]) {
   uint8_t pad[PACKET_SIZE - 104] = {0};
   uint32_t size = PACKET_SIZE - 12;
   uint32_t ver = htole32(ROUGHTIME_VERSION);
-  if (create_roughtime_packet(packet + 12, &size, 3,
+  if (create_roughtime_message(packet + 12, &size, 3,
       "PAD", 740, pad,
       "VER", 4, &ver,
       "NONC", 32, nonc

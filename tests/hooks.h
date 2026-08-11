@@ -1,4 +1,4 @@
-/* test_roughtime.c
+/* hooks.h
 
    Copyright (C) 2019-2016 Marcus Dansarie <marcus@dansarie.se>
 
@@ -15,34 +15,14 @@
    You should have received a copy of the GNU General Public License
    along with this program. If not, see <http://www.gnu.org/licenses/>. */
 
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
+#ifdef TESTING
+struct tm *test_gmtime_r(const time_t *restrict timep, struct tm *restrict result);
+#define gmtime_r test_gmtime_r
 #endif
 
-#include <check.h>
-
-/* Adds the tests defined in test_config.c. */
-void test_config_add(Suite *s);
-/* Adds the tests defined in test_roughtime_common.c. */
-void test_roughtime_common_add(Suite *s);
-
 /**
- * Creates the Roughtime test suite.
+ * Sets when test_gmtime_r should fail.
+ * @param i sets up to fail on exactly the ith call. A value of zero causes it to always fail.
+ * Negative values mean that it never fails.
  */
-Suite* roughtime_suite(void) {
-  Suite *s = suite_create("Roughtime");
-  test_config_add(s);
-  test_roughtime_common_add(s);
-  return s;
-}
-
-int main(int argc, char *argv[]) {
-  (void)argc;
-  (void)argv;
-  Suite *s = roughtime_suite();
-  SRunner *sr = srunner_create(s);
-  srunner_run_all(sr, CK_VERBOSE);
-  int num_failed = srunner_ntests_failed(sr);
-  srunner_free(sr);
-  return num_failed;
-}
+void fail_gmtime_r(int64_t i);

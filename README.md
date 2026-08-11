@@ -45,7 +45,7 @@ make test
 * Run `./roughtime-keytool key` to generate a new long-term keypair.
 * Run `./roughtime-keytool dele` to generate a certificate signed by the long-term private key.
 * Update the template roughtimed.conf with the public key returned by `./roughtime-keytool key`.
-* Update the template roughtimed.conf with the cert packet and private key returned by `./roughtime-keytool dele`.
+* Update the template roughtimed.conf with the cert message and private key returned by `./roughtime-keytool dele`.
 * Set the stats, threads, and max_path_len variables in roughtimed.conf as suitable.
 * Ensure roughtimed.conf is not world-readable or world-writable: `chmod 600 roughtimed.conf`.
 
@@ -63,9 +63,9 @@ The following table summarizes the configuration options in the configuration fi
 
 | Statement    | Description |
 | ------------ | ----------- |
-| cert         | A delegate certificate packet in base64 format. It can be generated with the `dele` command to `roughtime-keytool`. |
+| cert         | A delegate certificate message in base64 format. It can be generated with the `dele` command to `roughtime-keytool`. |
 | publ         | The server's long-term public key in base64 format. |
-| priv         | The private key for the certificate packet in cert. It is returned by the `dele` command to `roughtime-keytool`. |
+| priv         | The private key for the certificate message in cert. It is returned by the `dele` command to `roughtime-keytool`. |
 | stats        | Optional parameter specifying the output path for a statistics log file. |
 | thread       | Optional parameter specifying the number of worker threads. |
 | max_path_len | Optional parameter specifying the maximum path length in the Merkle tree. The maximum number of responses signed at once will be 2^x, where x is the maximum path length. |

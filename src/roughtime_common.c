@@ -29,6 +29,8 @@
 
 #include "roughtime_common.h"
 
+#include "../tests/hooks.h"
+
 const uint32_t CERTIFICATE_CONTEXT_LEN = 34;
 const uint32_t SIGNED_RESPONSE_CONTEXT_LEN = 32;
 const uint8_t *const CERTIFICATE_CONTEXT = (uint8_t*)"RoughTime v1 delegation signature";
@@ -36,7 +38,7 @@ const uint8_t *const SIGNED_RESPONSE_CONTEXT = (uint8_t*)"RoughTime v1 response 
 
 void trim(char *str) {
   ssize_t p = 0;
-  while (isspace(str[p]) && str[p] != '\0') {
+  while (str[p] != '\0' && isspace(str[p])) {
     p += 1;
   }
   size_t len = strlen(str) - p;
@@ -44,7 +46,7 @@ void trim(char *str) {
   if (len == 0) {
     return;
   }
-  for (p = len - 1; isspace(str[p]) && p >= 0; p--) {
+  for (p = len - 1; isspace(str[p]); p--) {
     str[p] = '\0';
   }
 }
@@ -60,19 +62,23 @@ uint32_t str_to_tag(const char *str) {
   return ret;
 }
 
-roughtime_result_t create_roughtime_packet(
-    uint8_t *restrict packet,
+roughtime_result_t create_roughtime_message(
+    uint8_t *restrict message,
     uint32_t *restrict size,
     uint32_t num_tags,
     ...) {
 
-  if (packet == NULL || size == NULL || num_tags == 0) {
+  if (message == NULL || size == NULL || num_tags == 0) {
+    if (size != NULL) {
+      *size = 0;
+    }
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
-  uint32_t *header = (uint32_t*)packet;
+  uint32_t *header = (uint32_t*)message;
 
   if (*size < num_tags * 8) {
+    *size = 0;
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
@@ -93,6 +99,7 @@ roughtime_result_t create_roughtime_packet(
     /* Fail if tags are not sorted. */
     if (tag <= last_tag) {
       va_end(ap);
+      *size = 0;
       return ROUGHTIME_BAD_ARGUMENT;
     }
     last_tag = tag;
@@ -100,10 +107,11 @@ roughtime_result_t create_roughtime_packet(
     uint32_t field_size = va_arg(ap, uint32_t);
     if (field_size % 4 != 0 || header_len + offset + field_size > *size) {
       va_end(ap);
+      *size = 0;
       return ROUGHTIME_BAD_ARGUMENT;
     }
     uint32_t *ptr = va_arg(ap, uint32_t*);
-    memcpy(packet + header_len + offset, ptr, field_size);
+    memcpy(message + header_len + offset, ptr, field_size);
     offset += field_size;
   }
 
@@ -113,19 +121,18 @@ roughtime_result_t create_roughtime_packet(
 }
 
 roughtime_result_t parse_roughtime_header(
-    const uint8_t *restrict packet,
-    uint32_t packet_len,
+    const uint8_t *restrict message,
+    uint32_t message_len,
     roughtime_header_t *restrict header) {
 
-  if (packet == NULL || packet_len < 12 || packet_len % 4 != 0 || header == NULL) {
+  if (message == NULL || message_len < 12 || message_len % 4 != 0 || header == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
-  header->num_tags = le32toh(*((uint32_t*)packet));
+  header->num_tags = le32toh(*((uint32_t*)message));
   uint32_t header_len = header->num_tags * 8;
   if (header->num_tags == 0
-      || header->num_tags * 12 > packet_len
-      || header_len >= packet_len
+      || header_len > message_len
       || header->num_tags > ROUGHTIME_HEADER_MAX_TAGS) {
     return ROUGHTIME_FORMAT_ERROR;
   }
@@ -134,21 +141,21 @@ roughtime_result_t parse_roughtime_header(
     if (i == 0) {
       header->offsets[i] = header_len;
     } else {
-      header->offsets[i] = le32toh(((uint32_t*)packet)[i]) + header_len;
+      header->offsets[i] = le32toh(((uint32_t*)message)[i]) + header_len;
       if (header->offsets[i] % 4 != 0
           || header->offsets[i] < header->offsets[i - 1]
-          || header->offsets[i] > packet_len) {
+          || header->offsets[i] > message_len) {
         return ROUGHTIME_FORMAT_ERROR;
       }
       header->lengths[i - 1] = header->offsets[i] - header->offsets[i - 1];
     }
-    header->tags[i] = le32toh(((uint32_t*)packet)[i + header->num_tags]);
+    header->tags[i] = le32toh(((uint32_t*)message)[i + header->num_tags]);
     /* Check for unsorted or duplicate tags. */
     if (i > 0 && header->tags[i] <= header->tags[i - 1]) {
       return ROUGHTIME_FORMAT_ERROR;
     }
   }
-  header->lengths[header->num_tags - 1] = packet_len - header->offsets[header->num_tags - 1];
+  header->lengths[header->num_tags - 1] = message_len - header->offsets[header->num_tags - 1];
   return ROUGHTIME_SUCCESS;
 }
 
@@ -161,7 +168,13 @@ roughtime_result_t get_header_tag(
   if (header == NULL
       || offset == NULL
       || length == NULL
-      || header->num_tags >= ROUGHTIME_HEADER_MAX_TAGS) {
+      || header->num_tags > ROUGHTIME_HEADER_MAX_TAGS) {
+    if (offset != NULL) {
+      *offset = 0;
+    }
+    if (length != NULL) {
+      *length = 0;
+    }
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
@@ -172,6 +185,8 @@ roughtime_result_t get_header_tag(
       return ROUGHTIME_SUCCESS;
     }
   }
+  *offset = 0;
+  *length = 0;
   return ROUGHTIME_NOT_FOUND;
 }
 
@@ -190,6 +205,24 @@ roughtime_result_t timestamp_to_time(
       || hour == NULL
       || minute == NULL
       || second == NULL) {
+    if (year != NULL) {
+      *year = 0;
+    }
+    if (month != NULL) {
+      *month = 0;
+    }
+    if (day != NULL) {
+      *day = 0;
+    }
+    if (hour != NULL) {
+      *hour = 0;
+    }
+    if (minute != NULL) {
+      *minute = 0;
+    }
+    if (second != NULL) {
+      *second = 0;
+    }
     return ROUGHTIME_BAD_ARGUMENT;
   }
 

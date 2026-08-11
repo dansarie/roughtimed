@@ -289,14 +289,15 @@ void *response_thread(void *arg) {
         radi = MAX(radi, 3);
       }
     }
+    radi = htole32(radi);
 
     /* SREP */
     uint32_t srep_len = 140;
     uint8_t srep[140];
     roughtime_result_t res;
 
-    uint32_t ver_value = ROUGHTIME_VERSION;
-    if ((res = create_roughtime_packet(
+    uint32_t ver_value = htole32(ROUGHTIME_VERSION);
+    if ((res = create_roughtime_message(
         srep,
         &srep_len,
         5,
@@ -323,12 +324,12 @@ void *response_thread(void *arg) {
     }
 
     uint8_t nonc[32] = {0};
-    uint32_t indx = 0;
+    uint32_t indx = htole32(0);
     uint32_t path_len = merkle_order * 32;
-    uint32_t path[MAX_PATH_LEN * 32];
+    uint32_t path[MAX_PATH_LEN * 32] = {0};
     uint32_t response_len = MAX_RESPONSE_LEN - 12;
-    uint32_t type_value = 1;
-    if ((res = create_roughtime_packet(
+    uint32_t type_value = htole32(1);
+    if ((res = create_roughtime_message(
         responses + 12,
         &response_len,
         7,
