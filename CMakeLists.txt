@@ -82,9 +82,11 @@ target_compile_options(test_roughtime_asan PRIVATE -O0 -fsanitize=address,undefi
 target_link_options(test_roughtime_asan PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
 
 add_custom_target(test
+                 COMMAND ${CMAKE_COMMAND} -E cmake_echo_color --cyan "Running tests with coverage analysis"
                  COMMAND test_roughtime
                  COMMAND mkdir -p coverage
                  COMMAND gcovr --root ${CMAKE_SOURCE_DIR}
+                 COMMAND ${CMAKE_COMMAND} -E cmake_echo_color --cyan "Running tests with address and undefined behavior sanitizers"
                  COMMAND test_roughtime_asan
                  DEPENDS test_roughtime test_roughtime_asan
                  WORKING_DIRECTORY ${CMAKE_BINARY_DIR})

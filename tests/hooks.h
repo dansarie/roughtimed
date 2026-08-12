@@ -15,14 +15,58 @@
    You should have received a copy of the GNU General Public License
    along with this program. If not, see <http://www.gnu.org/licenses/>. */
 
-#ifdef TESTING
-struct tm *test_gmtime_r(const time_t *restrict timep, struct tm *restrict result);
-#define gmtime_r test_gmtime_r
+#ifdef TEST_CODE
+#undef TESTING
+#include <time.h>
+#include <openssl/evp.h>
+
+/* Declare the fail functions that are used to indicate when a hooked function should fail. */
+#define FAIL_FUNCTION_DECLARATION(F, T) void fail_##F(int64_t i, T val)
+FAIL_FUNCTION_DECLARATION(gmtime_r, struct tm*);
+FAIL_FUNCTION_DECLARATION(EVP_PKEY_new_raw_private_key, EVP_PKEY*);
+FAIL_FUNCTION_DECLARATION(EVP_PKEY_CTX_new, EVP_PKEY_CTX*);
+FAIL_FUNCTION_DECLARATION(EVP_MD_CTX_new, EVP_MD_CTX*);
+FAIL_FUNCTION_DECLARATION(EVP_DigestSignInit, int);
+FAIL_FUNCTION_DECLARATION(EVP_DigestSign, int);
+#undef FAIL_FUNCTION_DECLARATION
 #endif
 
-/**
- * Sets when test_gmtime_r should fail.
- * @param i sets up to fail on exactly the ith call. A value of zero causes it to always fail.
- * Negative values mean that it never fails.
- */
-void fail_gmtime_r(int64_t i);
+#ifdef TESTING
+#include <time.h>
+#include <openssl/evp.h>
+
+/* Declare the wrapper functions. */
+struct tm *test_gmtime_r(const time_t *restrict timep, struct tm *restrict result);
+
+EVP_PKEY *test_EVP_PKEY_new_raw_private_key(
+    int type,
+    ENGINE *e,
+    const unsigned char *key,
+    size_t keylen);
+
+EVP_PKEY_CTX *test_EVP_PKEY_CTX_new(EVP_PKEY *pkey, ENGINE *e);
+
+EVP_MD_CTX *test_EVP_MD_CTX_new(void);
+
+int test_EVP_DigestSignInit(
+    EVP_MD_CTX *ctx,
+    EVP_PKEY_CTX **pctx,
+    const EVP_MD *type,
+    ENGINE *e,
+    EVP_PKEY *pkey);
+
+int test_EVP_DigestSign(
+    EVP_MD_CTX *ctx,
+    unsigned char *sig,
+    size_t *siglen,
+    const unsigned char *tbs,
+    size_t tbslen);
+
+/* Define the hook macros. */
+#define gmtime_r test_gmtime_r
+#define EVP_PKEY_new_raw_private_key test_EVP_PKEY_new_raw_private_key
+#define EVP_PKEY_CTX_new test_EVP_PKEY_CTX_new
+#define EVP_MD_CTX_new test_EVP_MD_CTX_new
+#define EVP_DigestSignInit test_EVP_DigestSignInit
+#define EVP_DigestSign test_EVP_DigestSign
+#endif

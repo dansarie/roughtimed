@@ -305,35 +305,80 @@ roughtime_result_t sign(
       || signature == NULL
       || private_key == NULL
       || (context == NULL && context_len > 0)) {
+    if (signature != NULL) {
+      memset(signature, 0, 64);
+    }
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
+  EVP_PKEY *pkey = NULL;
+  EVP_PKEY_CTX *pctx = NULL;
+  EVP_MD_CTX *ctx = NULL;
+  roughtime_result_t err = ROUGHTIME_SUCCESS;
+
   uint8_t buf[len + context_len];
-  memcpy(buf, context, context_len);
+  if (context_len > 0) {
+    memcpy(buf, context, context_len);
+  }
   memcpy(buf + context_len, data, len);
 
-  EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, private_key, 32);
-  EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new(pkey, NULL);
+  pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, private_key, 32);
+  RETURN_IF(pkey == NULL, ROUGHTIME_INTERNAL_ERROR, "EVP_PKEY_new_raw_private_key returned NULL.");
+  pctx = EVP_PKEY_CTX_new(pkey, NULL);
+  RETURN_IF(pctx == NULL, ROUGHTIME_INTERNAL_ERROR, "EVP_PKEY_CTX_new returned NULL.");
   EVP_PKEY_free(pkey);
-  EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+  pkey = NULL;
+  ctx = EVP_MD_CTX_new();
+  RETURN_IF(ctx == NULL, ROUGHTIME_INTERNAL_ERROR, "EVP_MD_CTX_new returned NULL.");
   EVP_MD_CTX_set_pkey_ctx(ctx, pctx);
-  if (ctx == NULL || pkey == NULL || pctx == NULL) {
-    EVP_PKEY_CTX_free(pctx);
-    EVP_MD_CTX_free(ctx);
-    return ROUGHTIME_INTERNAL_ERROR;
-  }
+  RETURN_IF(
+      EVP_DigestSignInit(ctx, NULL, NULL, NULL, pkey) != 1,
+      ROUGHTIME_INTERNAL_ERROR,
+      "EVP_DigestSignInit returned error.");
 
-  if (EVP_DigestSignInit(ctx, NULL, NULL, NULL, pkey) != 1) {
-    EVP_MD_CTX_free(ctx);
-    EVP_PKEY_CTX_free(pctx);
-    return ROUGHTIME_INTERNAL_ERROR;
-  }
   size_t siglen = 64;
-  int ret = EVP_DigestSign(ctx, signature, &siglen, buf, len + context_len);
+  RETURN_IF(
+      EVP_DigestSign(ctx, signature, &siglen, buf, len + context_len) != 1,
+      ROUGHTIME_INTERNAL_ERROR,
+      "EVP_DigestSign returned error.");
+  RETURN_IF(
+      siglen != 64,
+      ROUGHTIME_INTERNAL_ERROR,
+      "EVP_DigestSign returned wrong signature length");
 
-  EVP_MD_CTX_free(ctx);
-  EVP_PKEY_CTX_free(pctx);
-  if (ret != 1 || siglen != 64) {
+error:
+  if (err != ROUGHTIME_SUCCESS) {
+    memset(signature, 0, 64);
+  }
+  if (pkey != NULL) {
+    EVP_PKEY_free(pkey);
+  }
+  if (pctx != NULL) {
+    EVP_PKEY_CTX_free(pctx);
+  }
+  if (ctx != NULL) {
+    EVP_MD_CTX_free(ctx);
+  }
+  return err;
+}
+
+/**
+ * Creates the public key associated with a private ed25519 key.
+ * @param priv a 32 byte (256 bit) private ed25519 key.
+ * @param publ a 32 byte array where the generated public key will be returned.
+ */
+roughtime_result_t priv_to_publ(const uint8_t *restrict priv, uint8_t *restrict publ) {
+  if (priv == NULL || publ == NULL) {
+    return ROUGHTIME_BAD_ARGUMENT;
+  }
+  EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, priv, 32);
+  size_t keylen = 32;
+  if (pkey == NULL || EVP_PKEY_get_raw_public_key(pkey, publ, &keylen) != 1) {
+    EVP_PKEY_free(pkey);
+    return ROUGHTIME_INTERNAL_ERROR;
+  }
+  EVP_PKEY_free(pkey);
+  if (keylen != 32) {
     return ROUGHTIME_INTERNAL_ERROR;
   }
   return ROUGHTIME_SUCCESS;

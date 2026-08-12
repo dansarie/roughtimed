@@ -211,6 +211,13 @@ roughtime_result_t sign(
     const uint8_t *restrict private_key);
 
 /**
+ * Creates the public key associated with a private ed25519 key.
+ * @param priv a 32 byte (256 bit) private ed25519 key.
+ * @param publ a 32 byte array where the generated public key will be returned.
+ */
+roughtime_result_t priv_to_publ(const uint8_t *restrict priv, uint8_t *restrict publ);
+
+/**
  * Converts a base64 encoded string to raw bytes.
  * @param base64 a null terminated base64 encoded string.
  * @param out on output buffer. The buffer ust have a size of at least 3 * b64len / 4 bytes, where

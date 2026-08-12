@@ -48,28 +48,6 @@ void printhelp(const char *filename) {
 }
 
 /**
- * Creates the public key associated with a private ed25519 key.
- * @param priv a 32 byte (256 bit) private ed25519 key.
- * @param publ a 32 byte array where the generated public key will be returned.
- */
-roughtime_result_t priv_to_publ(const uint8_t *restrict priv, uint8_t *restrict publ) {
-  if (priv == NULL || publ == NULL) {
-    return ROUGHTIME_BAD_ARGUMENT;
-  }
-  EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, priv, KEYLEN);
-  size_t keylen = KEYLEN;
-  if (pkey == NULL || EVP_PKEY_get_raw_public_key(pkey, publ, &keylen) != 1) {
-    EVP_PKEY_free(pkey);
-    return ROUGHTIME_INTERNAL_ERROR;
-  }
-  EVP_PKEY_free(pkey);
-  if (keylen != KEYLEN) {
-    return ROUGHTIME_INTERNAL_ERROR;
-  }
-  return ROUGHTIME_SUCCESS;
-}
-
-/**
  * Removes all newline characters ('\n') from a string.
  * @param str a string. The newlines are removed in place.
  */
