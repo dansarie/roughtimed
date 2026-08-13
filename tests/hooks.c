@@ -90,6 +90,16 @@ EVP_PKEY *test_EVP_PKEY_new_raw_private_key(
   WRAP_FUNCTION(EVP_PKEY_new_raw_private_key, type, e, key, keylen)
 }
 
+WRAP_VARS(EVP_PKEY_new_raw_public_key, EVP_PKEY*)
+FAIL_FUNCTION(EVP_PKEY_new_raw_public_key, EVP_PKEY*)
+EVP_PKEY *test_EVP_PKEY_new_raw_public_key(
+    int type,
+    ENGINE *e,
+    const unsigned char *key,
+    size_t keylen) {
+  WRAP_FUNCTION(EVP_PKEY_new_raw_public_key, type, e, key, keylen)
+}
+
 WRAP_VARS(EVP_PKEY_CTX_new, EVP_PKEY_CTX*)
 FAIL_FUNCTION(EVP_PKEY_CTX_new, EVP_PKEY_CTX*)
 EVP_PKEY_CTX *test_EVP_PKEY_CTX_new(EVP_PKEY *pkey, ENGINE *e) {
@@ -127,4 +137,46 @@ int test_EVP_DigestSign(
     const unsigned char *tbs,
     size_t tbslen) {
   WRAP_FUNCTION_SPECIAL(EVP_DigestSign, EVP_DigestSign_set_siglen(siglen), ctx, sig, siglen, tbs, tbslen)
+}
+
+WRAP_VARS(EVP_DigestVerifyInit, int)
+FAIL_FUNCTION(EVP_DigestVerifyInit, int)
+int test_EVP_DigestVerifyInit(
+    EVP_MD_CTX *ctx,
+    EVP_PKEY_CTX **pctx,
+    const EVP_MD *type,
+    ENGINE *e,
+    EVP_PKEY *pkey) {
+  WRAP_FUNCTION(EVP_DigestVerifyInit, ctx, pctx, type, e, pkey)
+}
+
+WRAP_VARS(EVP_DigestVerify, int)
+FAIL_FUNCTION(EVP_DigestVerify, int)
+int test_EVP_DigestVerify(
+    EVP_MD_CTX *ctx,
+    const unsigned char *sig,
+    size_t siglen,
+    const unsigned char *tbs,
+    size_t tbslen) {
+  WRAP_FUNCTION(EVP_DigestVerify, ctx, sig, siglen, tbs, tbslen)
+}
+
+size_t g_EVP_PKEY_get_raw_public_key_len = 33;
+void EVP_PKEY_get_raw_public_key_set_len(size_t *len) {
+  *len = g_EVP_PKEY_get_raw_public_key_len;
+}
+
+WRAP_VARS(EVP_PKEY_get_raw_public_key, int)
+FAIL_FUNCTION(EVP_PKEY_get_raw_public_key, int)
+int test_EVP_PKEY_get_raw_public_key(
+    const EVP_PKEY *pkey,
+    unsigned char *pub,
+    size_t *len) {
+  WRAP_FUNCTION_SPECIAL(EVP_PKEY_get_raw_public_key, EVP_PKEY_get_raw_public_key_set_len(len), pkey, pub, len)
+}
+
+WRAP_VARS(EVP_DecodeBlock, size_t)
+FAIL_FUNCTION(EVP_DecodeBlock, size_t)
+int test_EVP_DecodeBlock(unsigned char *t, const unsigned char *f, int n) {
+  WRAP_FUNCTION(EVP_DecodeBlock, t, f, n)
 }

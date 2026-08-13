@@ -52,6 +52,9 @@ void trim(char *str) {
 }
 
 uint32_t str_to_tag(const char *str) {
+  if (str == NULL) {
+    return 0;
+  }
   uint32_t ret = 0;
   for (int i = 0; i < 4; i++) {
     if (str[i] == '\0') {
@@ -199,12 +202,27 @@ roughtime_result_t timestamp_to_time(
     uint32_t *restrict minute,
     uint32_t *restrict second) {
 
-  if (year == NULL
+  roughtime_result_t err = ROUGHTIME_SUCCESS;
+  RETURN_IF(year == NULL
       || month == NULL
       || day == NULL
       || hour == NULL
       || minute == NULL
-      || second == NULL) {
+      || second == NULL,
+      ROUGHTIME_BAD_ARGUMENT,
+      "NULL argument to timestamp_to_time.");
+
+  struct tm ts = {0};
+  RETURN_IF(gmtime_r(&timestamp, &ts) != &ts, ROUGHTIME_INTERNAL_ERROR, "gmtime_r returned error.");
+  *year   = ts.tm_year  + 1900;
+  *month  = ts.tm_mon   + 1;
+  *day    = ts.tm_mday;
+  *hour   = ts.tm_hour;
+  *minute = ts.tm_min;
+  *second = ts.tm_sec;
+
+error:
+  if (err != ROUGHTIME_SUCCESS) {
     if (year != NULL) {
       *year = 0;
     }
@@ -223,21 +241,7 @@ roughtime_result_t timestamp_to_time(
     if (second != NULL) {
       *second = 0;
     }
-    return ROUGHTIME_BAD_ARGUMENT;
   }
-
-  roughtime_result_t err = ROUGHTIME_SUCCESS;
-
-  struct tm ts = {0};
-  RETURN_IF(gmtime_r(&timestamp, &ts) != &ts, ROUGHTIME_INTERNAL_ERROR, "gmtime_r returned error.");
-  *year   = ts.tm_year  + 1900;
-  *month  = ts.tm_mon   + 1;
-  *day    = ts.tm_mday;
-  *hour   = ts.tm_hour;
-  *minute = ts.tm_min;
-  *second = ts.tm_sec;
-
-error:
   return err;
 }
 
@@ -248,7 +252,6 @@ roughtime_result_t verify_signature(
     uint32_t context_len,
     const uint8_t *restrict signature,
     const uint8_t *restrict public_key) {
-
   if (data == NULL
       || len == 0
       || signature == NULL
@@ -257,39 +260,40 @@ roughtime_result_t verify_signature(
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
+  EVP_PKEY *pkey = NULL;
+  EVP_MD_CTX *ctx = NULL;
+  roughtime_result_t err = ROUGHTIME_SUCCESS;
+
   uint8_t buf[len + context_len];
   if (context != NULL) {
     memcpy(buf, context, context_len);
   }
   memcpy(buf + context_len, data, len);
 
-  EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-  EVP_PKEY *pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, NULL, public_key, 32);
-  EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new(pkey, NULL);
-  if (ctx == NULL || pkey == NULL || pctx == NULL) {
-    EVP_MD_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
-    EVP_PKEY_CTX_free(pctx);
-    return ROUGHTIME_INTERNAL_ERROR;
-  }
+  pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, NULL, public_key, 32);
+  RETURN_IF(pkey == NULL, ROUGHTIME_INTERNAL_ERROR, "EVP_PKEY_new_raw_public_key returned NULL.");
+  ctx = EVP_MD_CTX_new();
+  RETURN_IF(ctx == NULL, ROUGHTIME_INTERNAL_ERROR, "EVP_MD_CTX_new returned NULL.");
 
-  if (EVP_DigestVerifyInit(ctx, &pctx, NULL, NULL, pkey) != 1) {
-    EVP_MD_CTX_free(ctx);
-    EVP_PKEY_free(pkey);
-    return ROUGHTIME_INTERNAL_ERROR;
-  }
+  EVP_PKEY_CTX *pctx = NULL;
+  RETURN_IF(EVP_DigestVerifyInit(ctx, &pctx, NULL, NULL, pkey) != 1,
+      ROUGHTIME_INTERNAL_ERROR,
+      "EVP_DigestVerifyInit returned error.");
   int ret = EVP_DigestVerify(ctx, signature, 64, buf, len + context_len);
-
-  EVP_MD_CTX_free(ctx);
-  EVP_PKEY_free(pkey);
   switch (ret) {
-    case 0:
-      return ROUGHTIME_BAD_SIGNATURE;
-    case 1:
-      return ROUGHTIME_SUCCESS;
-    default:
-      return ROUGHTIME_INTERNAL_ERROR;
+    case 0: err = ROUGHTIME_BAD_SIGNATURE; break;
+    case 1: err = ROUGHTIME_SUCCESS;       break;
+    default: RETURN_IF(true, ROUGHTIME_INTERNAL_ERROR, "EVP_DigestVerify returned error.");
   }
+
+error:
+  if (ctx != NULL) {
+    EVP_MD_CTX_free(ctx);
+  }
+  if (pkey != NULL) {
+    EVP_PKEY_free(pkey);
+  }
+  return err;
 }
 
 roughtime_result_t sign(
@@ -350,14 +354,14 @@ error:
   if (err != ROUGHTIME_SUCCESS) {
     memset(signature, 0, 64);
   }
-  if (pkey != NULL) {
-    EVP_PKEY_free(pkey);
+  if (ctx != NULL) {
+    EVP_MD_CTX_free(ctx);
   }
   if (pctx != NULL) {
     EVP_PKEY_CTX_free(pctx);
   }
-  if (ctx != NULL) {
-    EVP_MD_CTX_free(ctx);
+  if (pkey != NULL) {
+    EVP_PKEY_free(pkey);
   }
   return err;
 }
@@ -368,20 +372,37 @@ error:
  * @param publ a 32 byte array where the generated public key will be returned.
  */
 roughtime_result_t priv_to_publ(const uint8_t *restrict priv, uint8_t *restrict publ) {
-  if (priv == NULL || publ == NULL) {
-    return ROUGHTIME_BAD_ARGUMENT;
-  }
-  EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, priv, 32);
+  EVP_PKEY *pkey = NULL;
+  roughtime_result_t err = ROUGHTIME_SUCCESS;
+  RETURN_IF(
+      priv == NULL || publ == NULL,
+      ROUGHTIME_BAD_ARGUMENT,
+      "priv_to_publ called with a NULL argument.");
+  pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, priv, 32);
+  RETURN_IF(
+      pkey == NULL,
+      ROUGHTIME_INTERNAL_ERROR,
+      "EVP_PKEY_new_raw_private_key returned NULL");
   size_t keylen = 32;
-  if (pkey == NULL || EVP_PKEY_get_raw_public_key(pkey, publ, &keylen) != 1) {
+  RETURN_IF(
+      EVP_PKEY_get_raw_public_key(pkey, publ, &keylen) != 1,
+      ROUGHTIME_INTERNAL_ERROR,
+      "EVP_PKEY_get_raw_public_key returned error.");
+  RETURN_IF(
+      keylen != 32,
+      ROUGHTIME_INTERNAL_ERROR,
+      "EVP_PKEY_get_raw_public_key returned bad keylen.");
+
+error:
+  if (err != ROUGHTIME_SUCCESS) {
+    if (publ != NULL) {
+      memset(publ, 0, 32);
+    }
+  }
+  if (pkey != NULL) {
     EVP_PKEY_free(pkey);
-    return ROUGHTIME_INTERNAL_ERROR;
   }
-  EVP_PKEY_free(pkey);
-  if (keylen != 32) {
-    return ROUGHTIME_INTERNAL_ERROR;
-  }
-  return ROUGHTIME_SUCCESS;
+  return err;
 }
 
 roughtime_result_t from_base64(
