@@ -15,8 +15,8 @@
    You should have received a copy of the GNU General Public License
    along with this program. If not, see <http://www.gnu.org/licenses/>. */
 
-#ifndef __ROUGHTIME_COMMON_H__
-#define __ROUGHTIME_COMMON_H__
+#ifndef ROUGHTIME_COMMON_H
+#define ROUGHTIME_COMMON_H
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -242,4 +242,4 @@ roughtime_result_t test_cert(
     const uint8_t *restrict cert,
     bool verbose);
 
-#endif /* __ROUGHTIME_COMMON_H__ */
+#endif /* ROUGHTIME_COMMON_H */

@@ -15,8 +15,8 @@
    You should have received a copy of the GNU General Public License
    along with this program. If not, see <http://www.gnu.org/licenses/>. */
 
-#ifndef __CONFIG_H__
-#define __CONFIG_H__
+#ifndef CONFIG_H
+#define CONFIG_H
 
 #include "roughtime_common.h"
 
@@ -38,4 +38,4 @@ roughtime_result_t get_config(const char *restrict key, const char **restrict va
 /** Securely clears the global configuration state. */
 void clear_config(void);
 
-#endif /* __CONFIG_H__ */
+#endif /* CONFIG_H */

@@ -35,18 +35,21 @@ pkg_check_modules(CHECK REQUIRED check)
 add_executable(roughtimed
                src/config.c
                src/roughtimed.c
-               src/roughtime_common.c)
+               src/roughtime_common.c
+               tests/hooks.c)
 target_link_libraries(roughtimed ${CMAKE_THREAD_LIBS_INIT})
 target_link_libraries(roughtimed OpenSSL::SSL m)
 
 add_executable(roughtime-keytool
                src/roughtime-keytool.c
-               src/roughtime_common.c)
+               src/roughtime_common.c
+               tests/hooks.c)
 target_link_libraries(roughtime-keytool OpenSSL::SSL)
 
 add_executable(roughtime-stress-tester
                src/roughtime-stress-tester.c
-               src/roughtime_common.c)
+               src/roughtime_common.c
+               tests/hooks.c)
 target_link_libraries(roughtime-stress-tester OpenSSL::SSL)
 
 add_executable(testtimex

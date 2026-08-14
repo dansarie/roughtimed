@@ -213,7 +213,10 @@ roughtime_result_t timestamp_to_time(
       "NULL argument to timestamp_to_time.");
 
   struct tm ts = {0};
-  RETURN_IF(gmtime_r(&timestamp, &ts) != &ts, ROUGHTIME_INTERNAL_ERROR, "gmtime_r returned error.");
+  RETURN_IF(
+      rtfun.gmtime_r(&timestamp, &ts) != &ts,
+      ROUGHTIME_INTERNAL_ERROR,
+      "gmtime_r returned error.");
   *year   = ts.tm_year  + 1900;
   *month  = ts.tm_mon   + 1;
   *day    = ts.tm_mday;
@@ -270,16 +273,16 @@ roughtime_result_t verify_signature(
   }
   memcpy(buf + context_len, data, len);
 
-  pkey = EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, NULL, public_key, 32);
+  pkey = rtfun.EVP_PKEY_new_raw_public_key(EVP_PKEY_ED25519, NULL, public_key, 32);
   RETURN_IF(pkey == NULL, ROUGHTIME_INTERNAL_ERROR, "EVP_PKEY_new_raw_public_key returned NULL.");
-  ctx = EVP_MD_CTX_new();
+  ctx = rtfun.EVP_MD_CTX_new();
   RETURN_IF(ctx == NULL, ROUGHTIME_INTERNAL_ERROR, "EVP_MD_CTX_new returned NULL.");
 
   EVP_PKEY_CTX *pctx = NULL;
-  RETURN_IF(EVP_DigestVerifyInit(ctx, &pctx, NULL, NULL, pkey) != 1,
+  RETURN_IF(rtfun.EVP_DigestVerifyInit(ctx, &pctx, NULL, NULL, pkey) != 1,
       ROUGHTIME_INTERNAL_ERROR,
       "EVP_DigestVerifyInit returned error.");
-  int ret = EVP_DigestVerify(ctx, signature, 64, buf, len + context_len);
+  int ret = rtfun.EVP_DigestVerify(ctx, signature, 64, buf, len + context_len);
   switch (ret) {
     case 0: err = ROUGHTIME_BAD_SIGNATURE; break;
     case 1: err = ROUGHTIME_SUCCESS;       break;
@@ -326,23 +329,23 @@ roughtime_result_t sign(
   }
   memcpy(buf + context_len, data, len);
 
-  pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, private_key, 32);
+  pkey = rtfun.EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, private_key, 32);
   RETURN_IF(pkey == NULL, ROUGHTIME_INTERNAL_ERROR, "EVP_PKEY_new_raw_private_key returned NULL.");
-  pctx = EVP_PKEY_CTX_new(pkey, NULL);
+  pctx = rtfun.EVP_PKEY_CTX_new(pkey, NULL);
   RETURN_IF(pctx == NULL, ROUGHTIME_INTERNAL_ERROR, "EVP_PKEY_CTX_new returned NULL.");
   EVP_PKEY_free(pkey);
   pkey = NULL;
-  ctx = EVP_MD_CTX_new();
+  ctx = rtfun.EVP_MD_CTX_new();
   RETURN_IF(ctx == NULL, ROUGHTIME_INTERNAL_ERROR, "EVP_MD_CTX_new returned NULL.");
-  EVP_MD_CTX_set_pkey_ctx(ctx, pctx);
+  rtfun.EVP_MD_CTX_set_pkey_ctx(ctx, pctx);
   RETURN_IF(
-      EVP_DigestSignInit(ctx, NULL, NULL, NULL, pkey) != 1,
+      rtfun.EVP_DigestSignInit(ctx, NULL, NULL, NULL, pkey) != 1,
       ROUGHTIME_INTERNAL_ERROR,
       "EVP_DigestSignInit returned error.");
 
   size_t siglen = 64;
   RETURN_IF(
-      EVP_DigestSign(ctx, signature, &siglen, buf, len + context_len) != 1,
+      rtfun.EVP_DigestSign(ctx, signature, &siglen, buf, len + context_len) != 1,
       ROUGHTIME_INTERNAL_ERROR,
       "EVP_DigestSign returned error.");
   RETURN_IF(
@@ -378,14 +381,14 @@ roughtime_result_t priv_to_publ(const uint8_t *restrict priv, uint8_t *restrict 
       priv == NULL || publ == NULL,
       ROUGHTIME_BAD_ARGUMENT,
       "priv_to_publ called with a NULL argument.");
-  pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, priv, 32);
+  pkey = rtfun.EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, priv, 32);;
   RETURN_IF(
       pkey == NULL,
       ROUGHTIME_INTERNAL_ERROR,
       "EVP_PKEY_new_raw_private_key returned NULL");
   size_t keylen = 32;
   RETURN_IF(
-      EVP_PKEY_get_raw_public_key(pkey, publ, &keylen) != 1,
+      rtfun.EVP_PKEY_get_raw_public_key(pkey, publ, &keylen) != 1,
       ROUGHTIME_INTERNAL_ERROR,
       "EVP_PKEY_get_raw_public_key returned error.");
   RETURN_IF(
@@ -422,7 +425,7 @@ roughtime_result_t from_base64(
     return ROUGHTIME_BAD_ARGUMENT;
   }
   size_t len = 0;
-  if ((len = EVP_DecodeBlock(out, b64, b64_len)) < 1) {
+  if ((len = rtfun.EVP_DecodeBlock(out, b64, b64_len)) < 1) {
     explicit_bzero(out, *len_out);
     fprintf(stderr, "Error when base64 decoding string.\n");
     return ROUGHTIME_INTERNAL_ERROR;
@@ -449,30 +452,39 @@ roughtime_result_t test_cert(
   roughtime_result_t err = ROUGHTIME_SUCCESS;
   roughtime_header_t header;
 
-  RETURN_ON_ERROR(parse_roughtime_header((uint8_t*)cert, 152, &header),
+  RETURN_ON_ERROR(rtfun.parse_roughtime_header((uint8_t*)cert, 152, &header),
       "Error when parsing CERT header.");
   RETURN_IF(header.num_tags != 2, ROUGHTIME_FORMAT_ERROR,
       "Unexpected number of tags in CERT header.");
 
-  RETURN_ON_ERROR(get_header_tag(&header, str_to_tag("DELE"), &offset, &len), "Missing DELE tag.");
+  RETURN_ON_ERROR(rtfun.get_header_tag(&header, str_to_tag("DELE"), &offset, &len), "Missing DELE tag.");
 
-  dele = malloc(len);
+  dele = rtfun.malloc(len);
   RETURN_IF(dele == NULL, ROUGHTIME_MEMORY_ERROR, "Malloc returned NULL.");
   memcpy(dele, cert + offset, len);
 
-  RETURN_ON_ERROR(get_header_tag(&header, str_to_tag("SIG"), &offset, &len), "Missing SIG tag.");
+  RETURN_ON_ERROR(rtfun.get_header_tag(
+      &header,
+      str_to_tag("SIG"), &offset, &len),
+      "Missing SIG tag.");
   RETURN_IF(len != 64, ROUGHTIME_FORMAT_ERROR, "Bad signature length.");
   memcpy(sig, cert + offset, 64);
 
-  RETURN_ON_ERROR(parse_roughtime_header(dele, 72, &header), "Error when parsing DELE header.");
-  RETURN_IF(header.num_tags != 3, ROUGHTIME_FORMAT_ERROR,
+  RETURN_ON_ERROR(
+      rtfun.parse_roughtime_header(dele, 72, &header),
+      "Error when parsing DELE header.");
+  RETURN_IF(
+      header.num_tags != 3,
+      ROUGHTIME_FORMAT_ERROR,
       "Unexpected number of tags in DELE header.");
 
-  RETURN_ON_ERROR(get_header_tag(&header, str_to_tag("PUBK"), &offset, &len), "Missing PUBK tag.");
+  RETURN_ON_ERROR(
+      rtfun.get_header_tag(&header, str_to_tag("PUBK"), &offset, &len),
+      "Missing PUBK tag.");
   RETURN_IF(len != 32, ROUGHTIME_FORMAT_ERROR, "Bad public key length.");
   memcpy(pubk, dele + offset, 32);
 
-  RETURN_ON_ERROR(get_header_tag(&header,
+  RETURN_ON_ERROR(rtfun.get_header_tag(&header,
                                  str_to_tag("MINT"),
                                  &offset,
                                  &len),
@@ -480,7 +492,9 @@ roughtime_result_t test_cert(
   RETURN_IF(len != 8, ROUGHTIME_FORMAT_ERROR, "Bad MINT length.");
   uint64_t mint = le64toh(*((uint64_t*)(dele + offset)));
 
-  RETURN_ON_ERROR(get_header_tag(&header, str_to_tag("MAXT"), &offset, &len), "Missing MAXT tag.");
+  RETURN_ON_ERROR(
+      rtfun.get_header_tag(&header, str_to_tag("MAXT"), &offset, &len),
+      "Missing MAXT tag.");
   RETURN_IF(len != 8, ROUGHTIME_FORMAT_ERROR, "Bad MAXT length.");
   uint64_t maxt = le64toh(*((uint64_t*)(dele + offset)));
 
@@ -494,7 +508,7 @@ roughtime_result_t test_cert(
         " (%016" PRIx64 ")\n", year, month, day, hour, minute, second, maxt);
   }
 
-  err = verify_signature(
+  err = rtfun.verify_signature(
       dele,
       72,
       CERTIFICATE_CONTEXT,
