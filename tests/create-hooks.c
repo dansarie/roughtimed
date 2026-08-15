@@ -1,0 +1,908 @@
+/* create-hooks.c
+
+   Copyright (C) 2019-2016 Marcus Dansarie <marcus@dansarie.se>
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program. If not, see <http://www.gnu.org/licenses/>. */
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <clang-c/Index.h>
+#include <json-c/json.h>
+
+#define RETURN_IF(C, S)\
+  if (C) {\
+    err = true;\
+    fprintf(stderr, "Error on line %d: %s.\n", __LINE__, (S));\
+    goto error;\
+  }
+
+#define CLANG_ERR "libclang error"
+#define FILE_ERR "file error"
+#define FORMAT_ERR "format error"
+#define MEM_ERR "memory error"
+
+/**
+ * Represents a function argument.
+ */
+typedef struct {
+  char **types;    /**< The arguments' types. */
+  char **names;    /**< The arguments' names. */
+  char **pointees; /**< For pointers, the type of the pointee. NULL otherwise. */
+  bool has_ptr;    /**< True if at least one argument is a pointer. */
+  size_t num;      /**< Number of arguments. */
+} Arguments;
+
+/**
+ * Represents a header entry in the configuration JSON file, and the parsed
+ * types of its functions.
+ */
+typedef struct {
+  char *header;         /**< Name of the header, as specified in the JSON file. */
+  bool local;           /**< true for local includes and false for system includes. */
+  char **functions;     /**< Function names, as specified in the JSON file. */
+  char **rettypes;      /**< Function return types, from libclang. */
+  Arguments *args;      /**< Function arguments, from libclang. */
+  size_t num_functions; /**< Number of hooked functions in the header. */
+} Header;
+
+void free_arguments(Arguments *args) {
+  if (args == NULL) {
+    return;
+  }
+  for (size_t i = 0; i < args->num; i++) {
+    free(args->types[i]);
+    free(args->names[i]);
+    free(args->pointees[i]);
+  }
+  free(args->types);
+  free(args->names);
+  free(args->pointees);
+}
+
+char* get_arguments_str(const Arguments *args) {
+  if (args == NULL) {
+    return NULL;
+  }
+  if (args->num == 0) {
+    return strdup("void");
+  }
+  size_t len = 1;
+  for (size_t i = 0; i < args->num; i++) {
+    len += strlen(args->types[i]);
+    len += strlen(args->names[i]);
+    len += 3;
+  }
+  char *buf = calloc(len, 1);
+  if (buf == NULL) {
+    return NULL;
+  }
+  for (size_t i = 0; i < args->num; i++) {
+    strcat(buf, args->types[i]);
+    strcat(buf, " ");
+    strcat(buf, args->names[i]);
+    if (i != args->num - 1) {
+      strcat(buf, ", ");
+    }
+  }
+  return buf;
+}
+
+char* get_argument_names_str(const Arguments *args) {
+  if (args == NULL) {
+    return NULL;
+  }
+  if (args->num == 0) {
+    return strdup("");
+  }
+  size_t len = 1;
+  for (size_t i = 0; i < args->num; i++) {
+    len += strlen(args->names[i]);
+    len += 2;
+  }
+  char *buf = calloc(len, 1);
+  if (buf == NULL) {
+    return NULL;
+  }
+  for (size_t i = 0; i < args->num; i++) {
+    strcat(buf, args->names[i]);
+    if (i != args->num - 1) {
+      strcat(buf, ", ");
+    }
+  }
+  return buf;
+}
+
+/**
+ * Frees a header array and its contents.
+ * @param headers the header array.
+ * @param num_headers the number of headers in the array.
+ */
+void free_headers(Header *headers, size_t num_headers) {
+  if (headers == NULL) {
+    return;
+  }
+  for (size_t i = 0; i < num_headers; i++) {
+    Header *h = headers + i;
+    for (size_t j = 0; j < h->num_functions; j++) {
+      free(h->functions[j]);
+      free(h->rettypes[j]);
+      free_arguments(h->args + j);
+    }
+    free(h->header);
+    free(h->functions);
+    free(h->rettypes);
+    free(h->args);
+  }
+  free(headers);
+}
+
+/**
+ * Parses a hooks JSON file and creates an array of Header structs from its contents. The
+ * returntypes and arguments arrays of each Header are allocated and initialized with NULL pointers.
+ * @param fname file name of the JSON configuration file.
+ * @param headers output pointer for the allocated headers array.
+ * @param num_header output pointer for the number of headers in the configuration file.
+ * @return true if an error occurred.
+ */
+bool parse_hooks_file(
+    const char *fname,
+    Header **headers,
+    size_t *num_headers) {
+  if (headers != NULL) {
+    *headers = NULL;
+  }
+  if (num_headers != NULL) {
+    *num_headers = 0;
+  }
+  if (fname == NULL || headers == NULL || num_headers == NULL) {
+    return true;
+  }
+  struct json_object *hooks_file = NULL;
+  bool err = false;
+  hooks_file = json_object_from_file(fname);
+  RETURN_IF(hooks_file == NULL, "failure reading hooks file");
+  struct json_object *headers_arr = json_object_object_get(hooks_file, "headers");
+  RETURN_IF(headers_arr == NULL, FORMAT_ERR);
+  *num_headers = json_object_array_length(headers_arr);
+  *headers = calloc(*num_headers, sizeof(Header));\
+  RETURN_IF(*headers == NULL, MEM_ERR);
+  for (size_t i = 0; i < *num_headers; i++) {
+    struct json_object *h = json_object_array_get_idx(headers_arr, i);
+    RETURN_IF(h == NULL, "bad array index");
+    struct json_object *name      = json_object_object_get(h, "header");
+    struct json_object *include   = json_object_object_get(h, "include");
+    struct json_object *functions = json_object_object_get(h, "functions");
+    RETURN_IF(name == NULL, FORMAT_ERR);
+    RETURN_IF(include == NULL, FORMAT_ERR);
+    RETURN_IF(functions == NULL, FORMAT_ERR);
+    const char *namestr = json_object_get_string(name);
+    const char *includestr = json_object_get_string(include);
+    RETURN_IF(namestr == NULL, FORMAT_ERR);
+    RETURN_IF(includestr == NULL, FORMAT_ERR);
+    Header *hdr = *headers + i;
+    hdr->header = strdup(namestr);
+    RETURN_IF(hdr->header == NULL, MEM_ERR);
+    if (strcmp(includestr, "system") == 0) {
+      hdr->local = false;
+    } else if (strcmp(includestr, "local") == 0) {
+      hdr->local = true;
+    } else {
+      RETURN_IF(true, FORMAT_ERR);
+    }
+    hdr->num_functions = json_object_array_length(functions);
+    if (hdr->num_functions == 0) {
+      continue;
+    }
+    hdr->functions = calloc(hdr->num_functions, sizeof(char*));
+    RETURN_IF(hdr->functions == NULL, MEM_ERR);
+    hdr->rettypes = calloc(hdr->num_functions, sizeof(char*));
+    RETURN_IF(hdr->rettypes == NULL, MEM_ERR);
+    hdr->args = calloc(hdr->num_functions, sizeof(Arguments));
+    RETURN_IF(hdr->args == NULL, MEM_ERR);
+    for (size_t j = 0; j < hdr->num_functions; j++) {
+      struct json_object *fun = json_object_array_get_idx(functions, j);
+      RETURN_IF(fun == NULL, "bad array index");
+      const char *funstr = json_object_get_string(fun);
+      RETURN_IF(funstr == NULL, FORMAT_ERR);
+      hdr->functions[j] = strdup(funstr);
+      RETURN_IF(hdr->functions[j] == NULL, MEM_ERR);
+    }
+  }
+
+error:
+  if (hooks_file != NULL) {
+    json_object_put(hooks_file);
+  }
+  if (err) {
+    free_headers(*headers, *num_headers);
+    *headers = NULL;
+    *num_headers = 0;
+  }
+  return err;
+}
+
+/**
+ * Abstract syntax tree visitor function. This function is called by clang_visitChildren and is used
+ * to find the hooked function. The Header structure is update with relevant information for each
+ * hooked function.
+ * @param cursor pointer to the visited object in the AST.
+ * @param parent not used.
+ * @param client_data a pointer to the current Header struct.
+ * @return a value indicating if the calling function should continue or abort the tree traversal.
+ */
+enum CXChildVisitResult visitor(
+    CXCursor cursor,
+    CXCursor parent,
+    CXClientData client_data) {
+  (void)parent;
+  Header *hdr = (Header*)client_data;
+
+  CXString namestr = {0};
+  CXString rettypestr = {0};
+  CXString argtypestr = {0};
+  CXString argnamestr = {0};
+  CXString pointeestr = {0};
+  bool err = false;
+
+  if (cursor.kind != CXCursor_FunctionDecl) {
+    goto error;
+  }
+  namestr = clang_getCursorSpelling(cursor);
+  for (size_t i = 0; i < hdr->num_functions; i++) {
+    if (strcmp(clang_getCString(namestr), hdr->functions[i]) == 0) {
+      CXType rettype = clang_getResultType(clang_getCursorType(cursor));
+      rettypestr = clang_getTypeSpelling(rettype);
+      hdr->rettypes[i] = strdup(clang_getCString(rettypestr));
+      RETURN_IF(hdr->rettypes[i] == NULL, MEM_ERR);
+
+      hdr->args[i].num = clang_Cursor_getNumArguments(cursor);
+      hdr->args[i].types = calloc(hdr->args[i].num + 1, sizeof(char*));
+      RETURN_IF(hdr->args[i].types == NULL, MEM_ERR);
+      hdr->args[i].names = calloc(hdr->args[i].num + 1, sizeof(char*));
+      RETURN_IF(hdr->args[i].names == NULL, MEM_ERR);
+      hdr->args[i].pointees = calloc(hdr->args[i].num + 1, sizeof(char*));
+      RETURN_IF(hdr->args[i].pointees == NULL, MEM_ERR);
+      for (size_t j = 0; j < hdr->args[i].num; j++) {
+        CXCursor arg = clang_Cursor_getArgument(cursor, j);
+        argnamestr = clang_getCursorSpelling(arg);
+        CXType argtype = clang_getCursorType(arg);
+        argtypestr = clang_getTypeSpelling(argtype);
+        hdr->args[i].types[j] = strdup(clang_getCString(argtypestr));
+        RETURN_IF(hdr->args[i].types[j] == NULL, MEM_ERR);
+        hdr->args[i].names[j] = strdup(clang_getCString(argnamestr));
+        RETURN_IF(hdr->args[i].names[j] == NULL, MEM_ERR);
+        if (argtype.kind == CXType_Pointer) {
+          hdr->args[i].has_ptr = true;
+          CXType pointee = clang_getPointeeType(argtype);
+          if (!clang_isConstQualifiedType(pointee)
+              && clang_Type_getSizeOf(pointee) > 0) {
+            pointeestr = clang_getTypeSpelling(pointee);
+            hdr->args[i].pointees[j] = strdup(clang_getCString(pointeestr));
+            RETURN_IF(hdr->args[i].pointees[j] == NULL, MEM_ERR);
+            clang_disposeString(pointeestr);
+            pointeestr.data = NULL;
+          }
+        }
+        clang_disposeString(argnamestr);
+        clang_disposeString(argtypestr);
+        argnamestr.data = NULL;
+        argtypestr.data = NULL;
+      }
+      if (clang_isFunctionTypeVariadic(rettype)) {
+        RETURN_IF(hdr->args[i].num == 0, "varargs with no other args");
+        hdr->args[i].types[hdr->args[i].num] = strdup("");
+        RETURN_IF(hdr->args[i].types[hdr->args[i].num] == NULL, MEM_ERR);
+        hdr->args[i].names[hdr->args[i].num] = strdup("...");
+        RETURN_IF(hdr->args[i].names[hdr->args[i].num] == NULL, MEM_ERR);
+      }
+    }
+  }
+
+error:
+  if (namestr.data != NULL) {
+    clang_disposeString(namestr);
+  }
+  if (rettypestr.data != NULL) {
+    clang_disposeString(rettypestr);
+  }
+  if (argtypestr.data != NULL) {
+    clang_disposeString(argtypestr);
+  }
+  if (argnamestr.data != NULL) {
+    clang_disposeString(argnamestr);
+  }
+  if (pointeestr.data != NULL) {
+    clang_disposeString(pointeestr);
+  }
+  if (err) {
+    return CXChildVisit_Break;
+  }
+  return CXChildVisit_Continue;
+}
+
+/**
+ * Uses libclang to update a Header struct with relevant information from the header file.
+ * @param hdr the header struct to update.
+ * @param paths header file search paths for libclang.
+ * @param num_paths number of header file search paths.
+ * @return true if an error occurred.
+ */
+bool get_declarations(Header *hdr, const char **paths, int num_paths) {
+  if (hdr == NULL || num_paths < 0 || (paths == NULL && num_paths > 0)) {
+    return true;
+  }
+
+  CXIndex index = NULL;
+  CXTranslationUnit unit = NULL;
+  char *buf = 0;
+  char **clangargs = NULL;
+  bool err = false;
+
+  if (num_paths > 0) {
+    clangargs = calloc(num_paths, sizeof(char*));
+    RETURN_IF(clangargs == NULL, MEM_ERR);
+    for (int i = 0; i < num_paths; i++) {
+      clangargs[i] = malloc(strlen(paths[i]));
+      sprintf(clangargs[i], "-I%s", paths[i]);
+    }
+  }
+
+  size_t buflen = strlen(hdr->header) + 12;
+  buf = malloc(buflen);
+  RETURN_IF(buf == NULL, MEM_ERR);
+  sprintf(
+      buf,
+      "#include %c%s%c\n",
+      hdr->local ? '"' : '<',
+      hdr->header,
+      hdr->local ? '"' : '>');
+
+  struct CXUnsavedFile unsaved = {
+    .Filename = "create-hooks-tmp.c",
+    .Contents = buf,
+    .Length = buflen
+  };
+
+  index = clang_createIndex(0, 0);
+  RETURN_IF(index == NULL, CLANG_ERR);
+  enum CXErrorCode errcode = clang_parseTranslationUnit2(
+    index,
+    "create-hooks-tmp.c",
+    (const char**)clangargs,
+    num_paths,
+    &unsaved,
+    1,
+    CXTranslationUnit_None,
+    &unit);
+  if (errcode != CXError_Success) {
+    RETURN_IF(true, CLANG_ERR);
+  }
+
+  unsigned numDiags = clang_getNumDiagnostics(unit);
+  if (numDiags > 0) {
+    for (unsigned i = 0; i < numDiags; i++) {
+      CXDiagnostic diag = clang_getDiagnostic(unit, i);
+      CXString spelling = clang_formatDiagnostic(diag, clang_defaultDiagnosticDisplayOptions());
+      fprintf(stderr, "%s\n", clang_getCString(spelling));
+      clang_disposeString(spelling);
+      clang_disposeDiagnostic(diag);
+    }
+    RETURN_IF(true, "errors when parsing header file");
+  }
+
+  CXCursor cursor = clang_getTranslationUnitCursor(unit);
+  clang_visitChildren(cursor, visitor, hdr);
+
+error:
+  if (unit != NULL) {
+    clang_disposeTranslationUnit(unit);
+  }
+  if (index != NULL) {
+    clang_disposeIndex(index);
+  }
+  for (int i = 0; i < num_paths; i++) {
+    free(clangargs[i]);
+  }
+  free(buf);
+  free(clangargs);
+  return err;
+}
+
+bool print_struct(FILE *fp, Header *headers, size_t num_headers, bool conststruct) {
+  if (fp == NULL || headers == NULL) {
+    return true;
+  }
+
+  fprintf(fp, "%sRtfun rtfun = {\n", conststruct ? "const " : "");
+  for (size_t i = 0; i < num_headers; i++) {
+    fprintf(fp, "  /* From %s */\n", headers[i].header);
+    for (size_t j = 0; j < headers[i].num_functions; j++) {
+      fprintf(
+          fp,
+          "  .%s = %s%s\n",
+          headers[i].functions[j],
+          headers[i].functions[j],
+          i == num_headers - 1 && j == headers[i].num_functions - 1 ? "" : ",");
+    }
+  }
+  fprintf(fp, "};\n");
+
+  return false;
+}
+
+/**
+ * Creates the hooks.c file, which initializes the rtfun struct.
+ * @param headers an array of Header structs, specifying the functions to hook.
+ * @param num_headers number of headers in the Header array.
+ * @return true if an error occurred.
+ */
+bool create_hooks_c(Header *headers, size_t num_headers) {
+  if (headers == NULL) {
+    return true;
+  }
+  FILE *fp = NULL;
+  bool err = false;
+
+  fp = fopen("hooks.c", "w");
+  RETURN_IF(fp == NULL, FILE_ERR);
+
+  fprintf(
+      fp,
+      "/* hooks.c\n"
+      "\n"
+      "   Copyright (C) 2019-2016 Marcus Dansarie <marcus@dansarie.se>\n"
+      "\n"
+      "   This program is free software: you can redistribute it and/or modify\n"
+      "   it under the terms of the GNU General Public License as published by\n"
+      "   the Free Software Foundation, either version 3 of the License, or\n"
+      "   (at your option) any later version.\n"
+      "\n"
+      "   This program is distributed in the hope that it will be useful,\n"
+      "   but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
+      "   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the\n"
+      "   GNU General Public License for more details.\n"
+      "\n"
+      "   You should have received a copy of the GNU General Public License\n"
+      "   along with this program. If not, see <http://www.gnu.org/licenses/>. */\n"
+      "\n"
+      "/* This file has been automatically generated by create-hooks. */\n"
+      "\n"
+      "#include \"../src/hooks.h\"\n"
+      "\n"
+      "#ifdef TESTING\n");
+  print_struct(fp, headers, num_headers, false);
+  fprintf(fp, "#endif /* TESTING */\n");
+
+error:
+  if (fp != NULL) {
+    fclose(fp);
+  }
+  return err;
+}
+
+/**
+ * Creates the hooks.h file, which declares the Rtfun struct and the rtfun variable.
+ * @param headers an array of Header structs, specifying the functions to hook.
+ * @param num_headers number of headers in the Header array.
+ * @return true if an error occurred.
+ */
+bool create_hooks_h(Header *headers, size_t num_headers) {
+  if (headers == NULL) {
+    return true;
+  }
+  FILE *fp = NULL;
+  char *buf = NULL;
+  bool err = false;
+
+  fp = fopen("hooks.h", "w");
+  RETURN_IF(fp == NULL, FILE_ERR);
+
+  fprintf(
+      fp,
+      "/* hooks.h\n"
+      "\n"
+      "   Copyright (C) 2019-2016 Marcus Dansarie <marcus@dansarie.se>\n"
+      "\n"
+      "   This program is free software: you can redistribute it and/or modify\n"
+      "   it under the terms of the GNU General Public License as published by\n"
+      "   the Free Software Foundation, either version 3 of the License, or\n"
+      "   (at your option) any later version.\n"
+      "\n"
+      "   This program is distributed in the hope that it will be useful,\n"
+      "   but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
+      "   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the\n"
+      "   GNU General Public License for more details.\n"
+      "\n"
+      "   You should have received a copy of the GNU General Public License\n"
+      "   along with this program. If not, see <http://www.gnu.org/licenses/>. */\n"
+      "\n"
+      "/* This file has been automatically generated by create-hooks. */\n"
+      "\n"
+      "#ifndef HOOKS_H\n"
+      "#define HOOKS_H\n"
+      "\n"
+      "#ifndef _GNU_SOURCE\n"
+      "#define _GNU_SOURCE\n"
+      "#endif\n"
+      "\n");
+
+  for (size_t i = 0; i < num_headers; i++) {
+    fprintf(
+        fp,
+        "#include %c%s%c\n",
+        headers[i].local ? '"' : '<',
+        headers[i].header,
+        headers[i].local ? '"' : '>');
+  }
+  fprintf(
+      fp,
+      "\n"
+      "typedef struct {\n");
+
+  for (size_t i = 0; i < num_headers; i++) {
+    fprintf(fp, "  /* From %s */\n", headers[i].header);
+    for (size_t j = 0; j < headers[i].num_functions; j++) {
+      buf = get_arguments_str(headers[i].args + j);
+      RETURN_IF(buf == NULL, "error when fetching arguments");
+      fprintf(
+          fp,
+          "  %s (*%s)(%s);\n",
+          headers[i].rettypes[j],
+          headers[i].functions[j],
+          buf);
+      free(buf);
+      buf = NULL;
+    }
+  }
+
+  fprintf(
+      fp,
+      "} Rtfun;\n"
+      "\n"
+      "#ifdef TESTING\n"
+      "extern Rtfun rtfun;\n"
+      "#else\n"); 
+  print_struct(fp, headers, num_headers, true);
+  fprintf(
+      fp,
+      "#endif /* TESTING */\n"
+      "\n"
+      "#endif /* HOOKS_H */\n");
+
+error:
+  free(buf);
+  if (fp != NULL) {
+    fclose(fp);
+  }
+  return err;
+}
+
+/**
+ * Creates the wrappers.h file, which declares the wrapper functions.
+ * @param headers an array of Header structs, specifying the functions to hook.
+ * @param num_headers number of headers in the Header array.
+ * @return true if an error occurred.
+ */
+bool create_wrappers_h(Header *headers, size_t num_headers) {
+  if (headers == NULL) {
+    return true;
+  }
+  FILE *fp = NULL;
+  char *buf = NULL;
+  bool err = false;
+
+  fp = fopen("wrappers.h", "w");
+  RETURN_IF(fp == NULL, FILE_ERR);
+
+  fprintf(
+      fp,
+      "/* wrappers.h\n"
+      "\n"
+      "   Copyright (C) 2019-2016 Marcus Dansarie <marcus@dansarie.se>\n"
+      "\n"
+      "   This program is free software: you can redistribute it and/or modify\n"
+      "   it under the terms of the GNU General Public License as published by\n"
+      "   the Free Software Foundation, either version 3 of the License, or\n"
+      "   (at your option) any later version.\n"
+      "\n"
+      "   This program is distributed in the hope that it will be useful,\n"
+      "   but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
+      "   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the\n"
+      "   GNU General Public License for more details.\n"
+      "\n"
+      "   You should have received a copy of the GNU General Public License\n"
+      "   along with this program. If not, see <http://www.gnu.org/licenses/>. */\n"
+      "\n"
+      "/* This file has been automatically generated by create-hooks. */\n"
+      "\n"
+      "#ifndef WRAPPERS_H\n"
+      "#define WRAPPERS_H\n"
+      "\n"
+      "#ifndef _GNU_SOURCE\n"
+      "#define _GNU_SOURCE\n"
+      "#endif\n"
+      "\n");
+
+  for (size_t i = 0; i < num_headers; i++) {
+    fprintf(
+        fp,
+        "#include %c%s%c\n",
+        headers[i].local ? '"' : '<',
+        headers[i].header,
+        headers[i].local ? '"' : '>');
+  }
+  fprintf(fp, "\n");
+
+  fprintf(fp, "void rtfun_reset(void);\n\n");
+
+  for (size_t i = 0; i < num_headers; i++) {
+    fprintf(
+        fp,
+        "/* From %s */\n\n", headers[i].header);
+    for (size_t j = 0; j < headers[i].num_functions; j++) {
+      const char *ret   = headers[i].rettypes[j];
+      const char *fun   = headers[i].functions[j];
+      Arguments *args = headers[i].args + j;
+      buf = get_arguments_str(args);
+      RETURN_IF(buf == NULL, "error when fetching arguments");
+      fprintf(fp, "%s wrapped_%s(%s);\n", ret, fun, buf);
+      free(buf);
+      buf = NULL;
+      if (strcmp("void", ret) || args->has_ptr) {
+        fprintf(
+            fp,
+            "void set_fail_%s(size_t start_call, size_t stop_call",
+            fun);
+        if (strcmp("void", ret)) {
+          fprintf(fp, ", %s return_value", ret);
+        }
+        fprintf(fp, ");\n");
+        for (size_t k = 0; k < args->num; k++) {
+          if (args->pointees[k] != NULL) {
+            fprintf(
+                fp,
+                "void set_val_%s_%s(%s %s);\n",
+                fun,
+                args->names[k],
+                args->pointees[k],
+                args->names[k]);
+          }
+        }
+        fprintf(
+            fp,
+            "void reset_fail_%s(void);\n",
+            fun);
+      }
+      fprintf(fp, "\n");
+    }
+  }
+  fprintf(fp, "#endif /* WRAPPERS_H */\n");
+
+error:
+  if (fp != NULL) {
+    fclose(fp);
+  }
+  free(buf);
+  return err;
+}
+/**
+ * Creates the wrappers.c file, which implements the wrapper functions.
+ * @param headers an array of Header structs, specifying the functions to hook.
+ * @param num_headers number of headers in the Header array.
+ * @return true if an error occurred.
+ */
+bool create_wrappers_c(Header *headers, size_t num_headers) {
+  if (headers == NULL) {
+    return true;
+  }
+  FILE *fp = NULL;
+  char *argstr = NULL;
+  char *argnames = NULL;
+  bool err = false;
+
+  fp = fopen("wrappers.c", "w");
+  RETURN_IF(fp == NULL, FILE_ERR);
+
+  fprintf(
+      fp,
+      "/* wrappers.c\n"
+      "\n"
+      "   Copyright (C) 2019-2016 Marcus Dansarie <marcus@dansarie.se>\n"
+      "\n"
+      "   This program is free software: you can redistribute it and/or modify\n"
+      "   it under the terms of the GNU General Public License as published by\n"
+      "   the Free Software Foundation, either version 3 of the License, or\n"
+      "   (at your option) any later version.\n"
+      "\n"
+      "   This program is distributed in the hope that it will be useful,\n"
+      "   but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
+      "   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the\n"
+      "   GNU General Public License for more details.\n"
+      "\n"
+      "   You should have received a copy of the GNU General Public License\n"
+      "   along with this program. If not, see <http://www.gnu.org/licenses/>. */\n"
+      "\n"
+      "/* This file has been automatically generated by create-hooks. */\n"
+      "\n"
+      "#ifndef _GNU_SOURCE\n"
+      "#define _GNU_SOURCE\n"
+      "#endif\n"
+      "\n"
+      "#include \"wrappers.h\"\n"
+      "#include \"../src/hooks.h\"\n"
+      "\n");
+
+  for (size_t i = 0; i < num_headers; i++) {
+    fprintf(
+        fp,
+        "/* From %s */\n", headers[i].header);
+    for (size_t j = 0; j < headers[i].num_functions; j++) {
+      const char *ret  = headers[i].rettypes[j];
+      const char *fun  = headers[i].functions[j];
+      Arguments *args = headers[i].args + j;
+      argstr = get_arguments_str(headers[i].args + j);
+      RETURN_IF(argstr == NULL, "error when fetching arguments");
+      argnames = get_argument_names_str(headers[i].args + j);
+      RETURN_IF(argnames == NULL, "error when fetching arguments");
+      fprintf(fp, "\nsize_t g_%s_call_counter = 0;\n", fun);
+      fprintf(fp, "size_t g_%s_fail_start = 0;\n", fun);
+      fprintf(fp, "size_t g_%s_fail_stop = 0;\n", fun);
+      for (size_t k = 0; k < args->num; k++) {
+        if (args->pointees[k] != NULL) {
+          fprintf(
+              fp,
+              "bool g_%s_set_%s = false;\n",
+              fun,
+              args->names[k]);
+          fprintf(
+              fp,
+              "%s g_%s_val_%s;\n",
+              args->pointees[k],
+              fun,
+              args->names[k]);
+        }
+      }
+      if (strcmp("void", ret)) {
+        fprintf(fp, "%s g_%s_fail_val;\n", ret, fun);
+      }
+      fprintf(fp, "%s wrapped_%s(%s) {\n", ret, fun, argstr);
+      fprintf(fp, "  g_%s_call_counter += 1;\n", fun);
+      fprintf(fp, "  if (g_%s_fail_start > 0\n", fun);
+      fprintf(fp, "      && g_%s_fail_start <= g_%s_call_counter\n", fun, fun);
+      fprintf(fp, "      && g_%s_fail_stop >= g_%s_call_counter) {\n", fun, fun);
+      for (size_t k = 0; k < args->num; k++) {
+        if (args->pointees[k] != NULL) {
+          fprintf(fp, "    if (g_%s_set_%s) {\n", fun, args->names[k]);
+          fprintf(fp, "      *%s = g_%s_val_%s;\n", args->names[k], fun, args->names[k]);
+          fprintf(fp, "    }\n");
+        }
+      }
+      if (strcmp("void", ret)) {
+        fprintf(fp, "    return g_%s_fail_val;\n", fun);
+      } else {
+        fprintf(fp, "    return;\n");
+      }
+      fprintf(fp, "  }\n");
+      if (strcmp("void", ret)) {
+        fprintf(fp, "  return %s(%s);\n", fun, argnames);
+      } else {
+        fprintf(fp, "  %s(%s);\n", fun, argnames);
+      }
+      fprintf(fp, "}\n\n");
+      free(argstr);
+      free(argnames);
+      argstr = NULL;
+      argnames = NULL;
+      if (strcmp("void", ret) || args->has_ptr) {
+        fprintf(fp, "void set_fail_%s(size_t start_call, size_t stop_call", fun);
+        if (strcmp("void", ret)) {
+          fprintf(fp, ", %s return_value", ret);
+        }
+        fprintf(fp, ") {\n");
+        fprintf(fp, "  rtfun.%s = wrapped_%s;\n", fun, fun);
+        fprintf(fp, "  g_%s_call_counter = 0;\n", fun);
+        fprintf(fp, "  g_%s_fail_start = start_call;\n", fun);
+        fprintf(fp, "  g_%s_fail_stop = stop_call;\n", fun);
+        if (strcmp("void", ret)) {
+          fprintf(fp, "  g_%s_fail_val = return_value;\n", fun);
+        }
+        fprintf(fp, "}\n\n");
+
+        for (size_t k = 0; k < args->num; k++) {
+          if (args->pointees[k] != NULL) {
+            fprintf(
+                fp,
+                "void set_val_%s_%s(%s %s) {\n",
+                fun,
+                args->names[k],
+                args->pointees[k],
+                args->names[k]);
+            fprintf(fp, "  g_%s_set_%s = true;\n", fun, args->names[k]);
+            fprintf(fp, "  g_%s_val_%s = %s;\n", fun, args->names[k], args->names[k]);
+            fprintf(fp, "}\n\n");
+          }
+        }
+
+        fprintf(fp, "void reset_fail_%s(void) {\n", fun);
+        fprintf(fp, "  rtfun.%s = %s;\n", fun, fun);
+        fprintf(fp, "  g_%s_call_counter = 0;\n", fun);
+        fprintf(fp, "  g_%s_fail_start = 0;\n", fun);
+        fprintf(fp, "  g_%s_fail_stop = 0;\n", fun);
+        for (size_t k = 0; k < args->num; k++) {
+          if (args->pointees[k] != NULL) {
+            fprintf(fp, "  g_%s_set_%s = false;\n", fun, args->names[k]);
+          }
+        }
+        fprintf(fp, "}\n");
+      }
+    }
+  }
+
+  fprintf(fp, "\nvoid rtfun_reset(void) {\n");
+  for (size_t i = 0; i < num_headers; i++) {
+    for (size_t j = 0; j < headers[i].num_functions; j++) {
+      fprintf(fp, "  reset_fail_%s();\n", headers[i].functions[j]);
+    }
+  }
+  fprintf(fp, "}\n");
+
+error:
+  if (fp != NULL) {
+    fclose(fp);
+  }
+  free(argstr);
+  free(argnames);
+  return err;
+}
+
+int main(int argc, char *argv[]) {
+  if (argc < 2) {
+    fprintf(stderr, "Bad number of arguments: %d\n", argc - 1);
+  }
+
+  Header *headers = NULL;
+  size_t num_headers = 0;
+  bool err = false;
+
+  RETURN_IF(
+    parse_hooks_file(argv[1], &headers, &num_headers),
+    "error when parsing hooks");
+  for (size_t i = 0; i < num_headers; i++) {
+    RETURN_IF(
+        get_declarations(headers + i, (const char**)(argv + 2), argc - 2),
+        "error when getting declarations");
+  }
+  RETURN_IF(
+      create_hooks_c(headers, num_headers),
+      "error when creating hooks.c");
+  RETURN_IF(
+      create_hooks_h(headers, num_headers),
+      "error when creating hooks.h");
+  RETURN_IF(
+      create_wrappers_h(headers, num_headers),
+      "error when creating wrappers.h");
+  RETURN_IF(
+      create_wrappers_c(headers, num_headers),
+      "error when creating wrappers.c");
+
+error:
+  free_headers(headers, num_headers);
+  if (err) {
+    return 1;
+  }
+  return 0;
+}

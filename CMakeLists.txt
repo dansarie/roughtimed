@@ -30,50 +30,70 @@ add_definitions(-DVERSION="${ROUGHTIMED_VERSION}")
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(PkgConfig REQUIRED)
+find_package(Clang CONFIG REQUIRED)
+find_package(json-c REQUIRED)
 pkg_check_modules(CHECK REQUIRED check)
 
-add_executable(roughtimed
-               src/config.c
-               src/roughtimed.c
-               src/roughtime_common.c
-               tests/hooks.c)
+add_executable(
+  roughtimed
+  src/config.c
+  src/roughtimed.c
+  src/roughtime_common.c)
 target_link_libraries(roughtimed ${CMAKE_THREAD_LIBS_INIT})
 target_link_libraries(roughtimed OpenSSL::SSL m)
 
-add_executable(roughtime-keytool
-               src/roughtime-keytool.c
-               src/roughtime_common.c
-               tests/hooks.c)
+add_executable(
+  roughtime-keytool
+  src/roughtime-keytool.c
+  src/roughtime_common.c)
 target_link_libraries(roughtime-keytool OpenSSL::SSL)
 
-add_executable(roughtime-stress-tester
-               src/roughtime-stress-tester.c
-               src/roughtime_common.c
-               tests/hooks.c)
+add_executable(
+  roughtime-stress-tester
+  src/roughtime-stress-tester.c
+  src/roughtime_common.c)
 target_link_libraries(roughtime-stress-tester OpenSSL::SSL)
 
-add_executable(testtimex
-               src/testtimex.c)
+add_executable(
+  testtimex
+  src/testtimex.c)
 
-set(TEST_SOURCES
-    src/config.c
-    src/roughtime_common.c
-    tests/hooks.c
-    tests/test_config.c
-    tests/test_roughtime.c
-    tests/test_roughtime_common.c)
+add_executable(
+  create-hooks
+  tests/create-hooks.c)
+target_include_directories(create-hooks PRIVATE ${CLANG_INCLUDE_DIRS})
+target_link_libraries(
+  create-hooks PRIVATE
+  libclang
+  json-c::json-c)
+
+execute_process(
+  COMMAND clang -print-resource-dir
+  OUTPUT_VARIABLE CLANG_RESOURCE_DIR
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+add_custom_target(
+  hooks
+  COMMAND create-hooks
+  ${CMAKE_SOURCE_DIR}/tests/hooked_functions.json ${CLANG_RESOURCE_DIR}/include
+  COMMAND cp hooks.h ${CMAKE_SOURCE_DIR}/src/
+  COMMAND cp hooks.c wrappers.c wrappers.h ${CMAKE_SOURCE_DIR}/tests/
+  DEPENDS create-hooks
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 
 function(add_test_executable name)
-    add_executable(${name}
-                   src/config.c
-                   src/roughtime_common.c
-                   tests/hooks.c
-                   tests/test_config.c
-                   tests/test_roughtime.c
-                   tests/test_roughtime_common.c)
-    target_link_libraries(${name} ${CHECK_LIBRARIES})
-    target_link_libraries(${name} OpenSSL::SSL)
-    target_compile_options(${name} PRIVATE -DTESTING)
+ add_executable(
+   ${name}
+   src/config.c
+   src/roughtime_common.c
+   tests/hooks.c
+   tests/test_config.c
+   tests/test_roughtime.c
+   tests/test_roughtime_common.c
+   tests/wrappers.c)
+ target_link_libraries(${name} ${CHECK_LIBRARIES})
+ target_link_libraries(${name} OpenSSL::SSL)
+ target_compile_options(${name} PRIVATE -DTESTING)
 endfunction()
 
 add_test_executable(test_roughtime)
@@ -81,23 +101,33 @@ target_compile_options(test_roughtime PRIVATE -O0 --coverage)
 target_link_options(test_roughtime PRIVATE --coverage)
 
 add_test_executable(test_roughtime_asan)
-target_compile_options(test_roughtime_asan PRIVATE -O0 -fsanitize=address,undefined -fno-omit-frame-pointer)
-target_link_options(test_roughtime_asan PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+target_compile_options(
+  test_roughtime_asan PRIVATE
+  -O0
+  -fsanitize=address,undefined
+  -fno-omit-frame-pointer)
+target_link_options(
+  test_roughtime_asan PRIVATE
+  -fsanitize=address,undefined
+  -fno-omit-frame-pointer)
 
-add_custom_target(test
-                 COMMAND ${CMAKE_COMMAND} -E cmake_echo_color --cyan "Running tests with coverage analysis"
-                 COMMAND test_roughtime
-                 COMMAND mkdir -p coverage
-                 COMMAND gcovr --root ${CMAKE_SOURCE_DIR}
-                 COMMAND ${CMAKE_COMMAND} -E cmake_echo_color --cyan "Running tests with address and undefined behavior sanitizers"
-                 COMMAND test_roughtime_asan
-                 DEPENDS test_roughtime test_roughtime_asan
-                 WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
-set_property(TARGET test APPEND PROPERTY
-             ADDITIONAL_CLEAN_FILES "${CMAKE_BINARY_DIR}/coverage")
+add_custom_target(
+  test
+  COMMAND ${CMAKE_COMMAND} -E cmake_echo_color --cyan "Running tests with coverage analysis"
+  COMMAND test_roughtime
+  COMMAND mkdir -p coverage
+  COMMAND gcovr --root ${CMAKE_SOURCE_DIR}
+  COMMAND ${CMAKE_COMMAND} -E cmake_echo_color --cyan "Running tests with address and undefined behavior sanitizers"
+  COMMAND test_roughtime_asan
+  DEPENDS test_roughtime test_roughtime_asan
+  WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
+set_property(
+  TARGET test APPEND PROPERTY
+  ADDITIONAL_CLEAN_FILES "${CMAKE_BINARY_DIR}/coverage")
 
-add_custom_target(infer
-                  COMMAND infer run --compilation-database build/compile_commands.json
-                  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+add_custom_target(
+  infer
+  COMMAND infer run --compilation-database build/compile_commands.json
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 install(TARGETS roughtimed roughtime-keytool DESTINATION bin)

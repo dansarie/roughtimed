@@ -29,7 +29,7 @@
 
 #include "roughtime_common.h"
 
-#include "../tests/hooks.h"
+#include "hooks.h"
 
 const uint32_t CERTIFICATE_CONTEXT_LEN = 34;
 const uint32_t SIGNED_RESPONSE_CONTEXT_LEN = 32;

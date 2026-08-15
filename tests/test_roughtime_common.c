@@ -25,7 +25,7 @@
 #include <string.h>
 
 #define TEST_CODE
-#include "hooks.h"
+#include "wrappers.h"
 #include "../src/roughtime_common.h"
 
 /**
@@ -100,185 +100,6 @@ const uint8_t g_expected_sig_ctx[64] = {
   0xb6, 0x14, 0xd2, 0x84, 0x98, 0xdb, 0x97, 0xad, 0xa9, 0xa6, 0x99, 0x8f, 0x29, 0x9a, 0x0d, 0x05
 };
 const uint8_t g_zero_sig[64] = {0};
-
-union {
-  roughtime_result_t rt;
-  int i;
-} g_fail_return;
-
-size_t g_fail_keylen = 32;
-size_t g_fail_siglen = 64;
-
-roughtime_result_t fail_get_header_tag(
-    const roughtime_header_t *restrict header,
-    uint32_t tag,
-    uint32_t *restrict offset,
-    uint32_t *restrict length) {
-  (void)header;
-  (void)tag;
-  (void)offset;
-  (void)length;
-  return g_fail_return.rt;
-}
-
-roughtime_result_t fail_parse_roughtime_header(
-    const uint8_t *restrict message,
-    uint32_t message_len,
-    roughtime_header_t *restrict header) {
-  (void)message;
-  (void)message_len;
-  (void)header;
-  return g_fail_return.rt;
-}
-
-roughtime_result_t fail_verify_signature(
-    const uint8_t *restrict data,
-    uint32_t len,
-    const uint8_t *restrict context,
-    uint32_t context_len,
-    const uint8_t *restrict signature,
-    const uint8_t *restrict public_key) {
-  (void)data;
-  (void)len;
-  (void)context;
-  (void)context_len;
-  (void)signature;
-  (void)public_key;
-  return g_fail_return.rt;
-}
-
-void* fail_malloc(size_t size) {
-  (void)size;
-  return NULL;
-}
-
-struct tm* fail_gmtime_r(
-    const time_t *restrict timep,
-    struct tm *restrict result) {
-  (void)timep;
-  (void)result;
-  return NULL;
-}
-
-int fail_EVP_DecodeBlock(
-    unsigned char *t,
-    const unsigned char *f,
-    int n) {
-  (void)t;
-  (void)f;
-  (void)n;
-  return g_fail_return.i;
-}
-
-int fail_EVP_DigestSign(
-    EVP_MD_CTX *ctx,
-    unsigned char *sig,
-    size_t *siglen,
-    const unsigned char *tbs,
-    size_t tbslen) {
-  (void)ctx;
-  (void)sig;
-  (void)siglen;
-  (void)tbs;
-  (void)tbslen;
-  *siglen = g_fail_siglen;
-  return g_fail_return.i;
-}
-
-int fail_EVP_DigestSignInit(
-    EVP_MD_CTX *ctx,
-    EVP_PKEY_CTX **pctx,
-    const EVP_MD *type,
-    ENGINE *e,
-    EVP_PKEY *pkey) {
-  (void)ctx;
-  (void)pctx;
-  (void)type;
-  (void)e;
-  (void)pkey;
-  return g_fail_return.i;
-}
-
-int fail_EVP_DigestVerify(
-    EVP_MD_CTX *ctx,
-    const unsigned char *sig,
-    size_t siglen,
-    const unsigned char *tbs,
-    size_t tbslen) {
-  (void)ctx;
-  (void)sig;
-  (void)siglen;
-  (void)tbs;
-  (void)tbslen;
-  return g_fail_return.i;
-}
-
-int fail_EVP_DigestVerifyInit(
-    EVP_MD_CTX *ctx,
-    EVP_PKEY_CTX **pctx,
-    const EVP_MD *type,
-    ENGINE *e,
-    EVP_PKEY *pkey) {
-  (void)ctx;
-  (void)pctx;
-  (void)type;
-  (void)e;
-  (void)pkey;
-  return g_fail_return.i;
-}
-
-EVP_MD_CTX* fail_EVP_MD_CTX_new(void) {
-  return NULL;
-}
-
-void fail_EVP_MD_CTX_set_pkey_ctx(
-    EVP_MD_CTX *ctx,
-    EVP_PKEY_CTX *pctx) {
-  (void)ctx;
-  (void)pctx;
-}
-
-EVP_PKEY_CTX* fail_EVP_PKEY_CTX_new(
-    EVP_PKEY *pkey,
-    ENGINE *e) {
-  (void)pkey;
-  (void)e;
-  return NULL;
-}
-
-int fail_EVP_PKEY_get_raw_public_key(
-    const EVP_PKEY *pkey,
-    unsigned char *pub,
-    size_t *len) {
-  (void)pkey;
-  (void)pub;
-  *len = g_fail_keylen;
-  return g_fail_return.i;
-}
-
-EVP_PKEY* fail_EVP_PKEY_new_raw_private_key(
-    int type,
-    ENGINE *e,
-    const unsigned char *key,
-    size_t keylen) {
-  (void)type;
-  (void)e;
-  (void)key;
-  (void)keylen;
-  return NULL;
-}
-
-EVP_PKEY* fail_EVP_PKEY_new_raw_public_key(
-    int type,
-    ENGINE *e,
-    const unsigned char *key,
-    size_t keylen) {
-  (void)type;
-  (void)e;
-  (void)key;
-  (void)keylen;
-  return NULL;
-}
 
 void test_trim_str(const char *in, const char *out) {
   char str[1000] = {0};
@@ -679,7 +500,7 @@ START_TEST(test_timestamp_to_time) {
   ck_assert_uint_eq(second, 19);
 
   /* Test failure in gmtime_r. */
-  rtfun.gmtime_r = fail_gmtime_r;
+  set_fail_gmtime_r(1, 1, NULL);
   res = timestamp_to_time(1786465699, &year, &month, &day, &hour, &minute, &second);
   ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
   ck_assert_uint_eq(year, 0);
@@ -767,50 +588,20 @@ START_TEST(test_verify_signature) {
   ck_assert(res == ROUGHTIME_BAD_SIGNATURE);
 
   /* Test with simulated internal errors. */
-  rtfun.EVP_PKEY_new_raw_public_key = fail_EVP_PKEY_new_raw_public_key;
-  res = verify_signature(
-      g_srep_message,
-      g_srep_message_len,
-      CERTIFICATE_CONTEXT,
-      CERTIFICATE_CONTEXT_LEN,
-      g_expected_sig_ctx,
-      g_public_key);
-  ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
-  rtfun_reset();
-
-  rtfun.EVP_MD_CTX_new = fail_EVP_MD_CTX_new;
-  res = verify_signature(
-      g_srep_message,
-      g_srep_message_len,
-      CERTIFICATE_CONTEXT,
-      CERTIFICATE_CONTEXT_LEN,
-      g_expected_sig_ctx,
-      g_public_key);
-  ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
-  rtfun_reset();
-
-  rtfun.EVP_DigestVerifyInit = fail_EVP_DigestVerifyInit;
-  g_fail_return.i = 0;
-  res = verify_signature(
-      g_srep_message,
-      g_srep_message_len,
-      CERTIFICATE_CONTEXT,
-      CERTIFICATE_CONTEXT_LEN,
-      g_expected_sig_ctx,
-      g_public_key);
-  ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
-  rtfun_reset();
-
-  rtfun.EVP_DigestVerify = fail_EVP_DigestVerify;
-  g_fail_return.i = 2;
-  res = verify_signature(
-      g_srep_message,
-      g_srep_message_len,
-      CERTIFICATE_CONTEXT,
-      CERTIFICATE_CONTEXT_LEN,
-      g_expected_sig_ctx,
-      g_public_key);
-  ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
+  set_fail_EVP_PKEY_new_raw_public_key(1, 1, NULL);
+  set_fail_EVP_MD_CTX_new(1, 1, NULL);
+  set_fail_EVP_DigestVerifyInit(1, 1, 0);
+  set_fail_EVP_DigestVerify(1, 1, 2);
+  for (int i = 0; i < 4; i++) {
+    res = verify_signature(
+        g_srep_message,
+        g_srep_message_len,
+        CERTIFICATE_CONTEXT,
+        CERTIFICATE_CONTEXT_LEN,
+        g_expected_sig_ctx,
+        g_public_key);
+    ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
+  }
   rtfun_reset();
 }
 
@@ -906,73 +697,28 @@ START_TEST(test_sign) {
   ck_assert_mem_eq(signature, g_expected_sig_ctx, 64);
 
   /* Test with simulated internal errors. */
-  rtfun.EVP_PKEY_new_raw_private_key = fail_EVP_PKEY_new_raw_private_key;
-  res = sign(
-      g_srep_message,
-      g_srep_message_len,
-      CERTIFICATE_CONTEXT,
-      CERTIFICATE_CONTEXT_LEN,
-      signature,
-      g_private_key);
-  ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
-  ck_assert_mem_eq(signature, g_zero_sig, 64);
+  set_fail_EVP_PKEY_new_raw_private_key(1, 1, NULL);
+  set_fail_EVP_MD_CTX_new(1, 1, NULL);
+  set_fail_EVP_PKEY_CTX_new(1, 1, NULL);
+  set_fail_EVP_DigestSignInit(1, 1, 0);
+  set_fail_EVP_DigestSign(1, 1, 0);
+  for (int i = 0; i < 5; i++) {
+    res = sign(
+        g_srep_message,
+        g_srep_message_len,
+        CERTIFICATE_CONTEXT,
+        CERTIFICATE_CONTEXT_LEN,
+        signature,
+        g_private_key);
+    ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
+    ck_assert_mem_eq(signature, g_zero_sig, 64);
+  }
   rtfun_reset();
 
-  rtfun.EVP_PKEY_CTX_new = fail_EVP_PKEY_CTX_new;
-  res = sign(
-      g_srep_message,
-      g_srep_message_len,
-      CERTIFICATE_CONTEXT,
-      CERTIFICATE_CONTEXT_LEN,
-      signature,
-      g_private_key);
-  ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
-  ck_assert_mem_eq(signature, g_zero_sig, 64);
-  rtfun_reset();
-
-  rtfun.EVP_MD_CTX_new = fail_EVP_MD_CTX_new;
-  res = sign(
-      g_srep_message,
-      g_srep_message_len,
-      CERTIFICATE_CONTEXT,
-      CERTIFICATE_CONTEXT_LEN,
-      signature,
-      g_private_key);
-  ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
-  ck_assert_mem_eq(signature, g_zero_sig, 64);
-  rtfun_reset();
-
-  rtfun.EVP_DigestSignInit = fail_EVP_DigestSignInit;
-  g_fail_return.i = 0;
-  res = sign(
-      g_srep_message,
-      g_srep_message_len,
-      CERTIFICATE_CONTEXT,
-      CERTIFICATE_CONTEXT_LEN,
-      signature,
-      g_private_key);
-  ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
-  ck_assert_mem_eq(signature, g_zero_sig, 64);
-  rtfun_reset();
-
-  rtfun.EVP_DigestSign = fail_EVP_DigestSign;
-  g_fail_return.i = 0;
-  g_fail_siglen = 64;
-  res = sign(
-      g_srep_message,
-      g_srep_message_len,
-      CERTIFICATE_CONTEXT,
-      CERTIFICATE_CONTEXT_LEN,
-      signature,
-      g_private_key);
-  ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
-  ck_assert_mem_eq(signature, g_zero_sig, 64);
-  rtfun_reset();
 
   /* Test with simulated bad siglen return value from EVP_DigestSign. */
-  rtfun.EVP_DigestSign = fail_EVP_DigestSign;
-  g_fail_return.i = 1;
-  g_fail_siglen = 65;
+  set_fail_EVP_DigestSign(1, 1, 1);
+  set_val_EVP_DigestSign_siglen(65);
   res = sign(
       g_srep_message,
       g_srep_message_len,
@@ -1005,15 +751,14 @@ START_TEST(test_priv_to_publ) {
   ck_assert_mem_eq(pubkey, g_zero_sig, 32);
 
   /* Test with simulated internal errors. */
-  rtfun.EVP_PKEY_new_raw_private_key = fail_EVP_PKEY_new_raw_private_key;
+  set_fail_EVP_PKEY_new_raw_private_key(1, 1, NULL);
   res = priv_to_publ(g_private_key, pubkey);
   ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
   ck_assert_mem_eq(pubkey, g_zero_sig, 32);
   rtfun_reset();
 
-  rtfun.EVP_PKEY_get_raw_public_key = fail_EVP_PKEY_get_raw_public_key;
-  g_fail_return.i = 0;
-  g_fail_keylen = 32;
+  set_fail_EVP_PKEY_get_raw_public_key(1, 1, 0);
+  set_val_EVP_PKEY_get_raw_public_key_len(32);
   res = priv_to_publ(g_private_key, pubkey);
   ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
   ck_assert_mem_eq(pubkey, g_zero_sig, 32);
@@ -1025,9 +770,8 @@ START_TEST(test_priv_to_publ) {
   ck_assert_mem_eq(pubkey, g_public_key, 32);
 
   /* Test with simulated bad len return value from EVP_PKEY_get_raw_public_key. */
-  rtfun.EVP_PKEY_get_raw_public_key = fail_EVP_PKEY_get_raw_public_key;
-  g_fail_return.i = 1;
-  g_fail_keylen = 33;
+  set_fail_EVP_PKEY_get_raw_public_key(1, 1, 1);
+  set_val_EVP_PKEY_get_raw_public_key_len(33);
   res = priv_to_publ(g_private_key, pubkey);
   ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
   ck_assert_mem_eq(pubkey, g_zero_sig, 32);
@@ -1089,8 +833,7 @@ START_TEST(test_from_base64) {
   ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
   ck_assert_mem_eq(outbuf, zero, 100);
 
-  rtfun.EVP_DecodeBlock = fail_EVP_DecodeBlock;
-  g_fail_return.i = 101;
+  set_fail_EVP_DecodeBlock(1, 1, 101);
   memset(outbuf, 0xff, 100);
   len_out = 100;
   res = from_base64((const uint8_t*)b64[5], (uint8_t*)outbuf, &len_out);
@@ -1127,19 +870,46 @@ START_TEST(test_test_cert) {
    res = test_cert(g_public_key, certdata, false);
    ck_assert(res == ROUGHTIME_BAD_SIGNATURE);
 
-   rtfun.parse_roughtime_header = fail_parse_roughtime_header;
-   g_fail_return.rt = ROUGHTIME_INTERNAL_ERROR;
-   res = test_cert(g_public_key, certdata, false);
-   ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
-   rtfun_reset();
+   for (int i = 0; i < 2; i++) {
+     set_fail_parse_roughtime_header(i + 1, i + 1, ROUGHTIME_INTERNAL_ERROR);
+     res = test_cert(g_public_key, certdata, false);
+     ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
+     rtfun_reset();
 
-   rtfun.malloc = fail_malloc;
+     set_fail_parse_roughtime_header(i + 1, i + 1, ROUGHTIME_SUCCESS);
+     roughtime_header_t failhdr = {0};
+     set_val_parse_roughtime_header_header(failhdr);
+     res = test_cert(g_public_key, certdata, false);
+     ck_assert(res == ROUGHTIME_FORMAT_ERROR);
+     rtfun_reset();
+   }
+
+   set_fail_malloc(1, 1, NULL);
    res = test_cert(g_public_key, certdata, false);
    ck_assert(res == ROUGHTIME_MEMORY_ERROR);
    rtfun_reset();
 
-   rtfun.verify_signature = fail_verify_signature;
-   g_fail_return.rt = ROUGHTIME_INTERNAL_ERROR;
+   set_fail_verify_signature(1, 1, ROUGHTIME_INTERNAL_ERROR);
+   res = test_cert(g_public_key, certdata, false);
+   ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
+   rtfun_reset();
+
+   for (int i = 0; i < 5; i++) {
+     set_fail_get_header_tag(i + 1, i + 1, ROUGHTIME_NOT_FOUND);
+     res = test_cert(g_public_key, certdata, false);
+     ck_assert(res == ROUGHTIME_NOT_FOUND);
+     rtfun_reset();
+   }
+
+   for (int i = 0; i < 4; i++) {
+     set_fail_get_header_tag(i + 2, i + 2, ROUGHTIME_SUCCESS);
+     set_val_get_header_tag_length(68);
+     res = test_cert(g_public_key, certdata, false);
+     ck_assert(res == ROUGHTIME_FORMAT_ERROR);
+     rtfun_reset();
+   }
+
+   set_fail_verify_signature(1, 1, ROUGHTIME_INTERNAL_ERROR);
    res = test_cert(g_public_key, certdata, true);
    ck_assert(res == ROUGHTIME_INTERNAL_ERROR);
    rtfun_reset();

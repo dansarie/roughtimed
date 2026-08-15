@@ -1,0 +1,44 @@
+{
+  "headers": [
+    {
+      "header": "../src/roughtime_common.h",
+      "include": "local",
+      "functions": [
+        "get_header_tag",
+        "parse_roughtime_header",
+        "verify_signature"
+      ]
+    },
+    {
+      "header": "stdlib.h",
+      "include": "system",
+      "functions": [
+        "malloc"
+      ]
+    },
+    {
+      "header": "time.h",
+      "include": "system",
+      "functions": [
+        "gmtime_r"
+      ]
+    },
+    {
+      "header": "openssl/evp.h",
+      "include": "system",
+      "functions": [
+        "EVP_DecodeBlock",
+        "EVP_DigestSign",
+        "EVP_DigestSignInit",
+        "EVP_DigestVerify",
+        "EVP_DigestVerifyInit",
+        "EVP_MD_CTX_new",
+        "EVP_MD_CTX_set_pkey_ctx",
+        "EVP_PKEY_CTX_new",
+        "EVP_PKEY_get_raw_public_key",
+        "EVP_PKEY_new_raw_private_key",
+        "EVP_PKEY_new_raw_public_key"
+      ]
+    }
+  ]
+}
