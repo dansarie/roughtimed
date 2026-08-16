@@ -147,6 +147,7 @@ roughtime_result_t parse_roughtime_header(
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
+  memset(header, 0, sizeof(roughtime_header_t));
   memcpy(&header->num_tags, message, sizeof(uint32_t));
   header->num_tags = le32toh(header->num_tags);
   uint32_t header_len = header->num_tags * 8;
