@@ -1,19 +1,18 @@
 {
   "headers": [
     {
-      "header": "../src/roughtime_common.h",
-      "include": "local",
+      "header": "stdio.h",
+      "include": "system",
       "functions": [
-        "get_header_tag",
-        "parse_roughtime_header",
-        "verify_signature"
+        "fprintf"
       ]
     },
     {
       "header": "stdlib.h",
       "include": "system",
       "functions": [
-        "malloc"
+        "malloc",
+        "posix_memalign"
       ]
     },
     {
@@ -38,6 +37,41 @@
         "EVP_PKEY_get_raw_public_key",
         "EVP_PKEY_new_raw_private_key",
         "EVP_PKEY_new_raw_public_key"
+      ]
+    },
+    {
+      "header": "sys/socket.h",
+      "include": "system",
+      "functions": [
+        "sendmmsg"
+      ]
+    },
+    {
+      "header": "sys/timex.h",
+      "include": "system",
+      "functions": [
+        "ntp_adjtime"
+      ]
+    },
+    {
+      "header": "../src/roughtime_common.h",
+      "include": "local",
+      "functions": [
+        "create_roughtime_message",
+        "get_header_tag",
+        "parse_roughtime_header",
+        "sign",
+        "verify_signature"
+      ]
+    },
+    {
+      "header": "../src/roughtimed.h",
+      "include": "local",
+      "functions": [
+        "sha512_256",
+        "compute_merkle",
+        "add_queries",
+        "check_ver"
       ]
     }
   ]

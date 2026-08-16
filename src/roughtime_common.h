@@ -23,6 +23,7 @@
 #endif
 
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <time.h>
@@ -111,7 +112,8 @@ void trim(char *str);
  */
 uint32_t str_to_tag(const char *str);
 
-/** Creates a Roughtime message from a number of tags. Returns ROUGHTIME_SUCCESS when successful.
+/**
+ * Creates a Roughtime message from a number of tags. Returns ROUGHTIME_SUCCESS when successful.
  * @param message an output buffer.
  * @param size should contain the size (in bytes) of the message buffer when called. Contains the
  * size (in bytes) of the generated message on return.
@@ -126,6 +128,15 @@ roughtime_result_t create_roughtime_message(
     uint32_t *restrict size,
     uint32_t num_tags,
     ...);
+
+/**
+ * Creates a Roughtime message from a number of tags. This function is identical with
+ * create_roughtime_message, except that it takes a va_list argument instead of varargs. */
+roughtime_result_t create_roughtime_message_va(
+    uint8_t *restrict message,
+    uint32_t *restrict size,
+    uint32_t num_tags,
+    va_list ap);
 
 /**
  * Parses the header of a Roughtime message.

@@ -24,35 +24,36 @@
 #define _GNU_SOURCE
 #endif
 
-#include "../src/roughtime_common.h"
+#include <stdarg.h>
+
+#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <openssl/evp.h>
+#include <sys/socket.h>
+#include <sys/timex.h>
+#include "../src/roughtime_common.h"
+#include "../src/roughtimed.h"
 
 void rtfun_reset(void);
 
-/* From ../src/roughtime_common.h */
+/* From stdio.h */
 
-roughtime_result_t wrapped_get_header_tag(const roughtime_header_t *restrict header, uint32_t tag, uint32_t *restrict offset, uint32_t *restrict length);
-void set_fail_get_header_tag(size_t start_call, size_t stop_call, roughtime_result_t return_value);
-void set_val_get_header_tag_offset(uint32_t offset);
-void set_val_get_header_tag_length(uint32_t length);
-void reset_fail_get_header_tag(void);
-
-roughtime_result_t wrapped_parse_roughtime_header(const uint8_t *restrict message, uint32_t message_len, roughtime_header_t *restrict header);
-void set_fail_parse_roughtime_header(size_t start_call, size_t stop_call, roughtime_result_t return_value);
-void set_val_parse_roughtime_header_header(roughtime_header_t header);
-void reset_fail_parse_roughtime_header(void);
-
-roughtime_result_t wrapped_verify_signature(const uint8_t *restrict data, uint32_t len, const uint8_t *restrict context, uint32_t context_len, const uint8_t *restrict signature, const uint8_t *restrict public_key);
-void set_fail_verify_signature(size_t start_call, size_t stop_call, roughtime_result_t return_value);
-void reset_fail_verify_signature(void);
+int wrapped_fprintf(FILE *restrict __stream, const char *restrict __format, ...);
+void set_fail_fprintf(size_t start_call, size_t stop_call, int return_value, int (*fun)(FILE *restrict __stream, const char *restrict __format, va_list va_list_arg));
+void set_val_fprintf___stream(FILE __stream);
+void reset_fail_fprintf(void);
 
 /* From stdlib.h */
 
 void * wrapped_malloc(size_t __size);
 void set_fail_malloc(size_t start_call, size_t stop_call, void * return_value);
 void reset_fail_malloc(void);
+
+int wrapped_posix_memalign(void ** __memptr, size_t __alignment, size_t __size);
+void set_fail_posix_memalign(size_t start_call, size_t stop_call, int return_value);
+void set_val_posix_memalign___memptr(void * __memptr);
+void reset_fail_posix_memalign(void);
 
 /* From time.h */
 
@@ -113,5 +114,71 @@ void reset_fail_EVP_PKEY_new_raw_private_key(void);
 EVP_PKEY * wrapped_EVP_PKEY_new_raw_public_key(int type, ENGINE * e, const unsigned char * pub, size_t len);
 void set_fail_EVP_PKEY_new_raw_public_key(size_t start_call, size_t stop_call, EVP_PKEY * return_value);
 void reset_fail_EVP_PKEY_new_raw_public_key(void);
+
+/* From sys/socket.h */
+
+int wrapped_sendmmsg(int __fd, struct mmsghdr * __vmessages, unsigned int __vlen, int __flags);
+void set_fail_sendmmsg(size_t start_call, size_t stop_call, int return_value);
+void set_val_sendmmsg___vmessages(struct mmsghdr __vmessages);
+void reset_fail_sendmmsg(void);
+
+/* From sys/timex.h */
+
+int wrapped_ntp_adjtime(struct timex * __tntx);
+void set_fail_ntp_adjtime(size_t start_call, size_t stop_call, int return_value);
+void set_val_ntp_adjtime___tntx(struct timex __tntx);
+void reset_fail_ntp_adjtime(void);
+
+/* From ../src/roughtime_common.h */
+
+roughtime_result_t wrapped_create_roughtime_message(uint8_t *restrict message, uint32_t *restrict size, uint32_t num_tags, ...);
+void set_fail_create_roughtime_message(size_t start_call, size_t stop_call, roughtime_result_t return_value, roughtime_result_t (*fun)(uint8_t *restrict message, uint32_t *restrict size, uint32_t num_tags, va_list va_list_arg));
+void set_val_create_roughtime_message_message(uint8_t message);
+void set_val_create_roughtime_message_size(uint32_t size);
+void reset_fail_create_roughtime_message(void);
+
+roughtime_result_t wrapped_get_header_tag(const roughtime_header_t *restrict header, uint32_t tag, uint32_t *restrict offset, uint32_t *restrict length);
+void set_fail_get_header_tag(size_t start_call, size_t stop_call, roughtime_result_t return_value);
+void set_val_get_header_tag_offset(uint32_t offset);
+void set_val_get_header_tag_length(uint32_t length);
+void reset_fail_get_header_tag(void);
+
+roughtime_result_t wrapped_parse_roughtime_header(const uint8_t *restrict message, uint32_t message_len, roughtime_header_t *restrict header);
+void set_fail_parse_roughtime_header(size_t start_call, size_t stop_call, roughtime_result_t return_value);
+void set_val_parse_roughtime_header_header(roughtime_header_t header);
+void reset_fail_parse_roughtime_header(void);
+
+roughtime_result_t wrapped_sign(const uint8_t *restrict data, uint32_t len, const uint8_t *restrict context, uint32_t context_len, uint8_t *restrict signature, const uint8_t *restrict private_key);
+void set_fail_sign(size_t start_call, size_t stop_call, roughtime_result_t return_value);
+void set_val_sign_signature(uint8_t signature);
+void reset_fail_sign(void);
+
+roughtime_result_t wrapped_verify_signature(const uint8_t *restrict data, uint32_t len, const uint8_t *restrict context, uint32_t context_len, const uint8_t *restrict signature, const uint8_t *restrict public_key);
+void set_fail_verify_signature(size_t start_call, size_t stop_call, roughtime_result_t return_value);
+void reset_fail_verify_signature(void);
+
+/* From ../src/roughtimed.h */
+
+roughtime_result_t wrapped_sha512_256(uint8_t * in, size_t len, uint8_t * out);
+void set_fail_sha512_256(size_t start_call, size_t stop_call, roughtime_result_t return_value);
+void set_val_sha512_256_in(uint8_t in);
+void set_val_sha512_256_out(uint8_t out);
+void reset_fail_sha512_256(void);
+
+roughtime_result_t wrapped_compute_merkle(uint8_t * merkle, uint32_t order);
+void set_fail_compute_merkle(size_t start_call, size_t stop_call, roughtime_result_t return_value);
+void set_val_compute_merkle_merkle(uint8_t merkle);
+void reset_fail_compute_merkle(void);
+
+roughtime_result_t wrapped_add_queries(thread_arguments_t * args, const roughtime_query_t * queries, int * num_queries);
+void set_fail_add_queries(size_t start_call, size_t stop_call, roughtime_result_t return_value);
+void set_val_add_queries_args(thread_arguments_t args);
+void set_val_add_queries_num_queries(int num_queries);
+void reset_fail_add_queries(void);
+
+_Bool wrapped_check_ver(uint8_t * buf, uint32_t offset, uint32_t length, _Bool verbose);
+void set_fail_check_ver(size_t start_call, size_t stop_call, _Bool return_value);
+void set_val_check_ver_buf(uint8_t buf);
+void reset_fail_check_ver(void);
 
 #endif /* WRAPPERS_H */

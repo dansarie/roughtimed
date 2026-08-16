@@ -38,11 +38,9 @@
 #include <sys/timex.h>
 
 #include "config.h"
+#include "hooks.h"
 #include "roughtime_common.h"
-
-#ifndef VERSION
-#define VERSION "(unknown)"
-#endif
+#include "roughtimed.h"
 
 #define MAX_PATH_LEN 12
 /*
@@ -68,53 +66,11 @@ Header               56 = 7 * 8
 MAX_RESPONSE_LEN =  800
 */
 
-/** Length of longest possible response message. */
-#define MAX_RESPONSE_LEN 800
-/** Maximum number of messages to receive at once. */
-#define RECV_MAX 1024
-/** Maximum allowed length of received message. */
-#define MAX_RECV_LEN 1500
-/** At least one more than MAX_RECV_LEN, to leading zero for hashing. */
-#define MAX_RECV_BUFLEN 1501
-/** Roughtime version number. */
-#define ROUGHTIME_VERSION 0x8000000C
-/** Length of incoming request queue. */
-#define QUEUE_SIZE 16384
 
 #ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
-/** Describes a received Roughtime request packet. */
-typedef struct {
-  uint8_t msg[MAX_RECV_BUFLEN];  /**< The received Roughtime packet bytes, including the ROUGHTIM
-                                      header. A zero byte is prepended to the data, to simplify
-                                      hashing. This means that the received packet starts at
-                                      index 1. */
-  uint32_t len;                  /**< The length of the received Roughtime packet, including the
-                                      ROUGHTIM header but excluding the prepended zero byte. */
-  uint32_t nonc_offset;          /**< Offset of the raw nonce value in the msg buffer. */
-  struct sockaddr_in6 source;    /**< The request packet's source address. */
-  struct in6_pktinfo dest;       /**< The request packet's destination address. */
-} __attribute__((aligned(32))) roughtime_query_t;
-
-/** Arguments for a response thread. */
-typedef struct {
-  roughtime_query_t queue[QUEUE_SIZE]; /**< The thread's input queue with queries to respond to. */
-  uint32_t cert[152];                  /**< The server's certificate to include in the responses. */
-  uint8_t priv[256];                   /**< The server's private key for signing the responses. */
-  uint32_t queue_size;                 /**< The maximum size of the input queue. */
-  uint32_t queuep;                     /**< Number of requests in the queue. */
-  uint32_t max_tree_size;              /**< Maximum number of messages to include in a Merkle
-                                            tree. */
-  pthread_mutex_t queue_mutex;         /**< Mutex for synchronizing access to the queue. */
-  pthread_cond_t queue_cond;           /**< Condition variable for singaling that the queue is no
-                                            longer empty. */
-  int sock;                            /**< File descriptor for the socket to use for sending
-                                            responses. */
-  bool verbose;                        /**< Set to true to indicate that threads should write status
-                                            messages to standard out when sending responses. */
-} thread_arguments_t;
 
 bool g_quit = false; /**< Set to quit by the signal handler to indicate that all threads should
                           quit. */
@@ -131,7 +87,7 @@ void signal_handler(int signal) {
  * @param x an integer.
  * @return the smallest power of 2 that is larger than or equal to x.
  */
-static inline uint32_t clp2(uint32_t x) {
+uint32_t clp2(uint32_t x) {
   x -= 1;
   x |= (x >> 1);
   x |= (x >> 2);
@@ -147,7 +103,7 @@ static inline uint32_t clp2(uint32_t x) {
  * @param len size, in bytes, of the in buffer.
  * @param out pointer to a 32-byte output buffer for the calculated hash value.
  */
-static inline roughtime_result_t sha512_256(uint8_t *in, size_t len, uint8_t *out) {
+roughtime_result_t sha512_256(uint8_t *in, size_t len, uint8_t *out) {
   if (in == NULL || out == NULL) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
@@ -156,15 +112,16 @@ static inline roughtime_result_t sha512_256(uint8_t *in, size_t len, uint8_t *ou
   memcpy(out, buf, 32);
   return ROUGHTIME_SUCCESS;
 }
+
 /**
  * Calculates an entire Roughtime Merkle tree of 32-byte values, given the lowest level (leaf nodes)
  * of the tree.
  * @param merkle pointer to a buffer for the merkle tree, with the lowest level initialized. An
- * order n tree will require (2^n - 1) * 32 bytes of storage.
+ * order n tree will require (2^(n + 1) - 1) * 32 bytes of storage.
  * @param order the order (height) of the tree. The lowest level of an order n tree will have
- * 2^(n-1) leaf nodes.
+ * 2^n leaf nodes.
  */
-static inline roughtime_result_t compute_merkle(uint8_t *merkle, uint32_t order) {
+roughtime_result_t compute_merkle(uint8_t *merkle, uint32_t order) {
   if (merkle == NULL || order > 31) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
@@ -177,7 +134,7 @@ static inline roughtime_result_t compute_merkle(uint8_t *merkle, uint32_t order)
 
   for (int i = 0; i < (1 << (order - 1)); i++) {
     memcpy(buf + 1, merkle + 64 * i, 64);
-    roughtime_result_t err = sha512_256(buf, 65, next_merkle + 32 * i);
+    roughtime_result_t err = rtfun.sha512_256(buf, 65, next_merkle + 32 * i);
     if (err != ROUGHTIME_SUCCESS) {
       return err;
     }
@@ -202,13 +159,14 @@ void *response_thread(void *arg) {
 
   fesetround(FE_TONEAREST);
 
-  if (posix_memalign((void**)&merkle_tree, 32, 64 * (args->max_tree_size + 1)) != 0
-      || posix_memalign((void**)&query_buf, 32, sizeof(roughtime_query_t) * args->max_tree_size)
+  if (rtfun.posix_memalign((void**)&merkle_tree, 32, 64 * (args->max_tree_size + 1)) != 0
+      || rtfun.posix_memalign((void**)&query_buf, 32,
+          sizeof(roughtime_query_t) * args->max_tree_size) != 0
+      || rtfun.posix_memalign((void**)&responses, 32, args->max_tree_size * MAX_RESPONSE_LEN) != 0
+      || rtfun.posix_memalign((void**)&msgvec, 32, sizeof(struct mmsghdr) * args->max_tree_size)
           != 0
-      || posix_memalign((void**)&responses, 32, args->max_tree_size * MAX_RESPONSE_LEN) != 0
-      || posix_memalign((void**)&msgvec, 32, sizeof(struct mmsghdr) * args->max_tree_size) != 0
-      || posix_memalign((void**)&iov, 32, sizeof(struct iovec) * args->max_tree_size) != 0
-      || posix_memalign((void**)&control_buf, 32, controllen * args->max_tree_size) != 0) {
+      || rtfun.posix_memalign((void**)&iov, 32, sizeof(struct iovec) * args->max_tree_size) != 0
+      || rtfun.posix_memalign((void**)&control_buf, 32, controllen * args->max_tree_size) != 0) {
     fprintf(stderr, "Memory allocation error.\n");
     free(merkle_tree);
     free(query_buf);
@@ -247,7 +205,7 @@ void *response_thread(void *arg) {
     bool sha_error = false;
     for (uint32_t i = 0; i < num_queries; i++) {
       /* Leading zero byte is already present in beginning of msg buffer. */
-      if (sha512_256(
+      if (rtfun.sha512_256(
           query_buf[i].msg,
           query_buf[i].len + 1,
           merkle_tree + 32 * i) != ROUGHTIME_SUCCESS) {
@@ -261,7 +219,7 @@ void *response_thread(void *arg) {
     uint32_t merkle_size = clp2(num_queries);
     memset(merkle_tree + 32 * num_queries, 0, (merkle_size - num_queries) * 32);
     uint32_t merkle_order = __builtin_ctz(merkle_size);
-    if (compute_merkle(merkle_tree, merkle_order) != ROUGHTIME_SUCCESS) {
+    if (rtfun.compute_merkle(merkle_tree, merkle_order) != ROUGHTIME_SUCCESS) {
       fprintf(stderr, "Error when computing Merkle tree.\n");
       continue;
     }
@@ -269,7 +227,7 @@ void *response_thread(void *arg) {
     uint32_t *root = (uint32_t*)(merkle_tree + 32 * ((1 << (merkle_order + 1)) - 2));
 
     struct timex timex = {0};
-    int adjtime_ret = ntp_adjtime(&timex);
+    int adjtime_ret = rtfun.ntp_adjtime(&timex);
 
     /* MIDP */
     uint64_t midp = htole64(timex.time.tv_sec);
@@ -297,7 +255,7 @@ void *response_thread(void *arg) {
     roughtime_result_t res;
 
     uint32_t ver_value = htole32(ROUGHTIME_VERSION);
-    if ((res = create_roughtime_message(
+    if ((res = rtfun.create_roughtime_message(
         srep,
         &srep_len,
         5,
@@ -312,7 +270,7 @@ void *response_thread(void *arg) {
 
     /* SIG */
     uint32_t srep_sig[16];
-    if (sign(
+    if (rtfun.sign(
         srep,
         srep_len,
         SIGNED_RESPONSE_CONTEXT,
@@ -329,7 +287,7 @@ void *response_thread(void *arg) {
     uint32_t path[MAX_PATH_LEN * 32] = {0};
     uint32_t response_len = MAX_RESPONSE_LEN - 12;
     uint32_t type_value = htole32(1);
-    if ((res = create_roughtime_message(
+    if ((res = rtfun.create_roughtime_message(
         responses + 12,
         &response_len,
         7,
@@ -347,18 +305,18 @@ void *response_thread(void *arg) {
     /* Get value offsets. */
     roughtime_header_t res_header;
     uint32_t nonc_offset, nonc_len, path_offset, indx_offset, indx_len;
-    if (parse_roughtime_header(responses + 12, response_len, &res_header) != ROUGHTIME_SUCCESS
-        || get_header_tag(
+    if (rtfun.parse_roughtime_header(responses + 12, response_len, &res_header) != ROUGHTIME_SUCCESS
+        || rtfun.get_header_tag(
             &res_header,
             str_to_tag("NONC"),
             &nonc_offset,
             &nonc_len) != ROUGHTIME_SUCCESS
-        || get_header_tag(
+        || rtfun.get_header_tag(
             &res_header,
             str_to_tag("PATH"),
             &path_offset,
             &path_len) != ROUGHTIME_SUCCESS
-        || get_header_tag(
+        || rtfun.get_header_tag(
             &res_header,
             str_to_tag("INDX"),
             &indx_offset,
@@ -423,7 +381,7 @@ void *response_thread(void *arg) {
     unsigned int num_sent = 0;
     bool retry = true;
     while (to_send > 0) {
-      int sent = sendmmsg(args->sock, msgvec + num_sent, to_send, 0);
+      int sent = rtfun.sendmmsg(args->sock, msgvec + num_sent, to_send, 0);
       if (sent < 0) {
         if(g_quit) {
           break;
@@ -466,24 +424,22 @@ void *response_thread(void *arg) {
 
 /**
  * Add received queries to a thread's input queue.
- * @param thread a thread.
  * @param args the thread's arguments.
  * @param queries a query buffer.
  * @param num_queries the number of queries to attempt to add to the queue. On return, num_queries
  * contains the number of queries that was actually added to the queue.
  * @return ROUGHTIME_SUCCESS when successful and ROUGHTIME_QUEUE_FULL if no queries could be added.
  */
-static roughtime_result_t add_queries(
-    pthread_t *thread,
+roughtime_result_t add_queries(
     thread_arguments_t *args,
     const roughtime_query_t *queries,
     int *num_queries) {
 
-  if (thread == NULL || args == NULL || queries == NULL || num_queries == NULL) {
+  if (args == NULL || queries == NULL || num_queries == NULL || *num_queries < 0) {
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
-  if (*num_queries <= 0) {
+  if (*num_queries == 0) {
     return ROUGHTIME_SUCCESS;
   }
 
@@ -491,6 +447,7 @@ static roughtime_result_t add_queries(
   int free = (int)args->queue_size - args->queuep;
   if (free <= 0) {
     pthread_mutex_unlock(&args->queue_mutex);
+    *num_queries = 0;
     return ROUGHTIME_QUEUE_FULL;
   }
   uint32_t copy = free >= *num_queries ? *num_queries : free;
@@ -515,7 +472,7 @@ static roughtime_result_t add_queries(
  * function returns false.
  * @return true if all tests pass, and false if at least one test fails.
 */
-static inline bool check_ver(uint8_t *buf, uint32_t offset, uint32_t length, bool verbose) {
+bool check_ver(uint8_t *buf, uint32_t offset, uint32_t length, bool verbose) {
   if (length == 0        /* Check that VER tag has at least one entry. */
       || length % 4 != 0 /* Check that VER tag has a valid length. */
       || length > 128) { /* Don't allow more than 32 version numbers in VER tag. */
@@ -559,20 +516,26 @@ static inline bool check_ver(uint8_t *buf, uint32_t offset, uint32_t length, boo
  * @param queuefullcount pointer to the counter for number of packets thrown away due to queue
  * overflow. The number is reset whenever a line is written to the statistics file.
  */
-static void do_stats(
+void do_stats(
     FILE *restrict stats_file,
     uint64_t *restrict recvcount,
     uint64_t *restrict badcount,
     uint64_t *restrict queuefullcount) {
 
-  if (stats_file == NULL) {
+  if (stats_file == NULL || recvcount == NULL || badcount == NULL || queuefullcount == NULL) {
     return;
   }
   struct timex timex = {0};
-  ntp_adjtime(&timex);
+  if (rtfun.ntp_adjtime(&timex) == -1) {
+    fprintf(stderr, "ntp_adjtime returned error.\n");
+    return;
+  }
   timex.time.tv_sec += timex.tai - 10; /* Fixed 10 second offset between TAI and Unix time. */
-  struct tm stats_tm;
-  gmtime_r(&timex.time.tv_sec, &stats_tm);
+  struct tm stats_tm = {0};
+  if (rtfun.gmtime_r(&timex.time.tv_sec, &stats_tm) != &stats_tm) {
+    fprintf(stderr, "gmtime_r returned error.\n");
+    return;
+  }
   static int count_minute = -1;
   if (count_minute == -1) {
     count_minute = stats_tm.tm_min;
@@ -581,7 +544,7 @@ static void do_stats(
   if (count_minute == stats_tm.tm_min) {
     return;
   }
-  fprintf(
+  if(rtfun.fprintf(
       stats_file,
       "%04d-%02d-%02dT%02d:%02d:%02dZ %10" PRIu64 " %10" PRIu64 " %10" PRIu64 " %10ld %10ld\n",
       stats_tm.tm_year + 1900,
@@ -594,7 +557,9 @@ static void do_stats(
       *badcount,
       *queuefullcount,
       timex.maxerror,
-      timex.esterror);
+      timex.esterror) <= 0) {
+    fprintf(stderr, "Error when writing statistics file.\n");
+  }
   fflush(stats_file);
   *recvcount = *badcount = *queuefullcount = 0;
   count_minute = stats_tm.tm_min;
@@ -605,6 +570,7 @@ static void do_stats(
  * @param argc number of arguments.
  * @param argv argument buffer.
  */
+#ifndef TESTING
 int main(int argc, char *argv[]) {
   roughtime_result_t err = ROUGHTIME_SUCCESS;
   pthread_t *threads = NULL;
@@ -735,7 +701,7 @@ int main(int argc, char *argv[]) {
   RETURN_ON_ERROR(test_cert(publ, cert, false), "Verification of certificate failed.");
   srvhash[0] = 0xff;
   memcpy(srvhash + 1, publ, 32);
-  sha512_256(srvhash, 33, srvhash);
+  RETURN_ON_ERROR(rtfun.sha512_256(srvhash, 33, srvhash), "Error when calculating hash.");
 
   int portnum = 2002;
   const char *port_config;
@@ -800,6 +766,8 @@ int main(int argc, char *argv[]) {
 
   /* Spawn threads. */
   for (long i = 0; i < num_response_threads; i++) {
+    arguments[i].queue = calloc(QUEUE_SIZE, sizeof(roughtime_query_t));
+    RETURN_IF(arguments[i].queue == NULL, ROUGHTIME_MEMORY_ERROR, "Memory allocation error.");
     arguments[i].queue_size = QUEUE_SIZE;
     arguments[i].queuep = 0;
     arguments[i].max_tree_size = max_tree_size;
@@ -941,7 +909,7 @@ int main(int argc, char *argv[]) {
     int queryp = 0;
     for (int i = 0; num_queries > 0 && i < num_response_threads; i++) {
       int num = num_queries;
-      add_queries(&threads[next_thread], &arguments[next_thread], queries + queryp, &num);
+      add_queries(&arguments[next_thread], queries + queryp, &num);
       num_queries -= num;
       recvcount += num;
       queryp += num;
@@ -964,6 +932,10 @@ error:
       pthread_join(threads[i], NULL);
       pthread_mutex_destroy(&arguments[i].queue_mutex);
       pthread_cond_destroy(&arguments[i].queue_cond);
+      if (arguments[i].queue != NULL) {
+        explicit_bzero(arguments[i].queue, sizeof(roughtime_query_t) * arguments[i].queue_size);
+        free(arguments[i].queue);
+      }
     }
   }
   explicit_bzero(cert, 153);
@@ -986,3 +958,4 @@ error:
   }
   return 1;
 }
+#endif /* TESTING */

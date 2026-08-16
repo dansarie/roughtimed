@@ -21,12 +21,11 @@
 
 #ifdef TESTING
 Rtfun rtfun = {
-  /* From ../src/roughtime_common.h */
-  .get_header_tag = get_header_tag,
-  .parse_roughtime_header = parse_roughtime_header,
-  .verify_signature = verify_signature,
+  /* From stdio.h */
+  .fprintf = fprintf,
   /* From stdlib.h */
   .malloc = malloc,
+  .posix_memalign = posix_memalign,
   /* From time.h */
   .gmtime_r = gmtime_r,
   /* From openssl/evp.h */
@@ -40,6 +39,21 @@ Rtfun rtfun = {
   .EVP_PKEY_CTX_new = EVP_PKEY_CTX_new,
   .EVP_PKEY_get_raw_public_key = EVP_PKEY_get_raw_public_key,
   .EVP_PKEY_new_raw_private_key = EVP_PKEY_new_raw_private_key,
-  .EVP_PKEY_new_raw_public_key = EVP_PKEY_new_raw_public_key
+  .EVP_PKEY_new_raw_public_key = EVP_PKEY_new_raw_public_key,
+  /* From sys/socket.h */
+  .sendmmsg = sendmmsg,
+  /* From sys/timex.h */
+  .ntp_adjtime = ntp_adjtime,
+  /* From ../src/roughtime_common.h */
+  .create_roughtime_message = create_roughtime_message,
+  .get_header_tag = get_header_tag,
+  .parse_roughtime_header = parse_roughtime_header,
+  .sign = sign,
+  .verify_signature = verify_signature,
+  /* From ../src/roughtimed.h */
+  .sha512_256 = sha512_256,
+  .compute_merkle = compute_merkle,
+  .add_queries = add_queries,
+  .check_ver = check_ver
 };
 #endif /* TESTING */

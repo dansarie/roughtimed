@@ -24,7 +24,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#define TEST_CODE
 #include "wrappers.h"
 #include "../src/roughtime_common.h"
 

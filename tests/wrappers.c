@@ -24,126 +24,52 @@
 #include "wrappers.h"
 #include "../src/hooks.h"
 
-/* From ../src/roughtime_common.h */
+/* From stdio.h */
 
-size_t g_get_header_tag_call_counter = 0;
-size_t g_get_header_tag_fail_start = 0;
-size_t g_get_header_tag_fail_stop = 0;
-bool g_get_header_tag_set_offset = false;
-uint32_t g_get_header_tag_val_offset;
-bool g_get_header_tag_set_length = false;
-uint32_t g_get_header_tag_val_length;
-roughtime_result_t g_get_header_tag_fail_val;
-roughtime_result_t wrapped_get_header_tag(const roughtime_header_t *restrict header, uint32_t tag, uint32_t *restrict offset, uint32_t *restrict length) {
-  g_get_header_tag_call_counter += 1;
-  if (g_get_header_tag_fail_start > 0
-      && g_get_header_tag_fail_start <= g_get_header_tag_call_counter
-      && g_get_header_tag_fail_stop >= g_get_header_tag_call_counter) {
-    if (g_get_header_tag_set_offset) {
-      *offset = g_get_header_tag_val_offset;
+size_t g_fprintf_call_counter = 0;
+size_t g_fprintf_fail_start = 0;
+size_t g_fprintf_fail_stop = 0;
+bool g_fprintf_set___stream = false;
+FILE g_fprintf_val___stream;
+int g_fprintf_fail_val;
+int (*g_fprintf_va_fun)(FILE *restrict __stream, const char *restrict __format, va_list va_list_arg) = NULL;
+int wrapped_fprintf(FILE *restrict __stream, const char *restrict __format, ...) {
+  g_fprintf_call_counter += 1;
+  if (g_fprintf_fail_start > 0
+      && g_fprintf_fail_start <= g_fprintf_call_counter
+      && g_fprintf_fail_stop >= g_fprintf_call_counter) {
+    if (g_fprintf_set___stream) {
+      *__stream = g_fprintf_val___stream;
     }
-    if (g_get_header_tag_set_length) {
-      *length = g_get_header_tag_val_length;
-    }
-    return g_get_header_tag_fail_val;
+    return g_fprintf_fail_val;
   }
-  return get_header_tag(header, tag, offset, length);
+  va_list ap;
+  va_start(ap, __format);
+  int retval = g_fprintf_va_fun(__stream, __format, ap);
+  va_end(ap);
+  return retval;
 }
 
-void set_fail_get_header_tag(size_t start_call, size_t stop_call, roughtime_result_t return_value) {
-  rtfun.get_header_tag = wrapped_get_header_tag;
-  g_get_header_tag_call_counter = 0;
-  g_get_header_tag_fail_start = start_call;
-  g_get_header_tag_fail_stop = stop_call;
-  g_get_header_tag_fail_val = return_value;
+void set_fail_fprintf(size_t start_call, size_t stop_call, int return_value, int (*fun)(FILE *restrict __stream, const char *restrict __format, va_list va_list_arg)) {
+  rtfun.fprintf = wrapped_fprintf;
+  g_fprintf_call_counter = 0;
+  g_fprintf_fail_start = start_call;
+  g_fprintf_fail_stop = stop_call;
+  g_fprintf_fail_val = return_value;
+  g_fprintf_va_fun = fun;
 }
 
-void set_val_get_header_tag_offset(uint32_t offset) {
-  g_get_header_tag_set_offset = true;
-  g_get_header_tag_val_offset = offset;
+void set_val_fprintf___stream(FILE __stream) {
+  g_fprintf_set___stream = true;
+  g_fprintf_val___stream = __stream;
 }
 
-void set_val_get_header_tag_length(uint32_t length) {
-  g_get_header_tag_set_length = true;
-  g_get_header_tag_val_length = length;
-}
-
-void reset_fail_get_header_tag(void) {
-  rtfun.get_header_tag = get_header_tag;
-  g_get_header_tag_call_counter = 0;
-  g_get_header_tag_fail_start = 0;
-  g_get_header_tag_fail_stop = 0;
-  g_get_header_tag_set_offset = false;
-  g_get_header_tag_set_length = false;
-}
-
-size_t g_parse_roughtime_header_call_counter = 0;
-size_t g_parse_roughtime_header_fail_start = 0;
-size_t g_parse_roughtime_header_fail_stop = 0;
-bool g_parse_roughtime_header_set_header = false;
-roughtime_header_t g_parse_roughtime_header_val_header;
-roughtime_result_t g_parse_roughtime_header_fail_val;
-roughtime_result_t wrapped_parse_roughtime_header(const uint8_t *restrict message, uint32_t message_len, roughtime_header_t *restrict header) {
-  g_parse_roughtime_header_call_counter += 1;
-  if (g_parse_roughtime_header_fail_start > 0
-      && g_parse_roughtime_header_fail_start <= g_parse_roughtime_header_call_counter
-      && g_parse_roughtime_header_fail_stop >= g_parse_roughtime_header_call_counter) {
-    if (g_parse_roughtime_header_set_header) {
-      *header = g_parse_roughtime_header_val_header;
-    }
-    return g_parse_roughtime_header_fail_val;
-  }
-  return parse_roughtime_header(message, message_len, header);
-}
-
-void set_fail_parse_roughtime_header(size_t start_call, size_t stop_call, roughtime_result_t return_value) {
-  rtfun.parse_roughtime_header = wrapped_parse_roughtime_header;
-  g_parse_roughtime_header_call_counter = 0;
-  g_parse_roughtime_header_fail_start = start_call;
-  g_parse_roughtime_header_fail_stop = stop_call;
-  g_parse_roughtime_header_fail_val = return_value;
-}
-
-void set_val_parse_roughtime_header_header(roughtime_header_t header) {
-  g_parse_roughtime_header_set_header = true;
-  g_parse_roughtime_header_val_header = header;
-}
-
-void reset_fail_parse_roughtime_header(void) {
-  rtfun.parse_roughtime_header = parse_roughtime_header;
-  g_parse_roughtime_header_call_counter = 0;
-  g_parse_roughtime_header_fail_start = 0;
-  g_parse_roughtime_header_fail_stop = 0;
-  g_parse_roughtime_header_set_header = false;
-}
-
-size_t g_verify_signature_call_counter = 0;
-size_t g_verify_signature_fail_start = 0;
-size_t g_verify_signature_fail_stop = 0;
-roughtime_result_t g_verify_signature_fail_val;
-roughtime_result_t wrapped_verify_signature(const uint8_t *restrict data, uint32_t len, const uint8_t *restrict context, uint32_t context_len, const uint8_t *restrict signature, const uint8_t *restrict public_key) {
-  g_verify_signature_call_counter += 1;
-  if (g_verify_signature_fail_start > 0
-      && g_verify_signature_fail_start <= g_verify_signature_call_counter
-      && g_verify_signature_fail_stop >= g_verify_signature_call_counter) {
-    return g_verify_signature_fail_val;
-  }
-  return verify_signature(data, len, context, context_len, signature, public_key);
-}
-
-void set_fail_verify_signature(size_t start_call, size_t stop_call, roughtime_result_t return_value) {
-  rtfun.verify_signature = wrapped_verify_signature;
-  g_verify_signature_call_counter = 0;
-  g_verify_signature_fail_start = start_call;
-  g_verify_signature_fail_stop = stop_call;
-  g_verify_signature_fail_val = return_value;
-}
-
-void reset_fail_verify_signature(void) {
-  rtfun.verify_signature = verify_signature;
-  g_verify_signature_call_counter = 0;
-  g_verify_signature_fail_start = 0;
-  g_verify_signature_fail_stop = 0;
+void reset_fail_fprintf(void) {
+  rtfun.fprintf = fprintf;
+  g_fprintf_call_counter = 0;
+  g_fprintf_fail_start = 0;
+  g_fprintf_fail_stop = 0;
+  g_fprintf_set___stream = false;
 }
 /* From stdlib.h */
 
@@ -174,6 +100,46 @@ void reset_fail_malloc(void) {
   g_malloc_call_counter = 0;
   g_malloc_fail_start = 0;
   g_malloc_fail_stop = 0;
+}
+
+size_t g_posix_memalign_call_counter = 0;
+size_t g_posix_memalign_fail_start = 0;
+size_t g_posix_memalign_fail_stop = 0;
+bool g_posix_memalign_set___memptr = false;
+void * g_posix_memalign_val___memptr;
+int g_posix_memalign_fail_val;
+int wrapped_posix_memalign(void ** __memptr, size_t __alignment, size_t __size) {
+  g_posix_memalign_call_counter += 1;
+  if (g_posix_memalign_fail_start > 0
+      && g_posix_memalign_fail_start <= g_posix_memalign_call_counter
+      && g_posix_memalign_fail_stop >= g_posix_memalign_call_counter) {
+    if (g_posix_memalign_set___memptr) {
+      *__memptr = g_posix_memalign_val___memptr;
+    }
+    return g_posix_memalign_fail_val;
+  }
+  return posix_memalign(__memptr, __alignment, __size);
+}
+
+void set_fail_posix_memalign(size_t start_call, size_t stop_call, int return_value) {
+  rtfun.posix_memalign = wrapped_posix_memalign;
+  g_posix_memalign_call_counter = 0;
+  g_posix_memalign_fail_start = start_call;
+  g_posix_memalign_fail_stop = stop_call;
+  g_posix_memalign_fail_val = return_value;
+}
+
+void set_val_posix_memalign___memptr(void * __memptr) {
+  g_posix_memalign_set___memptr = true;
+  g_posix_memalign_val___memptr = __memptr;
+}
+
+void reset_fail_posix_memalign(void) {
+  rtfun.posix_memalign = posix_memalign;
+  g_posix_memalign_call_counter = 0;
+  g_posix_memalign_fail_start = 0;
+  g_posix_memalign_fail_stop = 0;
+  g_posix_memalign_set___memptr = false;
 }
 /* From time.h */
 
@@ -611,12 +577,494 @@ void reset_fail_EVP_PKEY_new_raw_public_key(void) {
   g_EVP_PKEY_new_raw_public_key_fail_start = 0;
   g_EVP_PKEY_new_raw_public_key_fail_stop = 0;
 }
+/* From sys/socket.h */
+
+size_t g_sendmmsg_call_counter = 0;
+size_t g_sendmmsg_fail_start = 0;
+size_t g_sendmmsg_fail_stop = 0;
+bool g_sendmmsg_set___vmessages = false;
+struct mmsghdr g_sendmmsg_val___vmessages;
+int g_sendmmsg_fail_val;
+int wrapped_sendmmsg(int __fd, struct mmsghdr * __vmessages, unsigned int __vlen, int __flags) {
+  g_sendmmsg_call_counter += 1;
+  if (g_sendmmsg_fail_start > 0
+      && g_sendmmsg_fail_start <= g_sendmmsg_call_counter
+      && g_sendmmsg_fail_stop >= g_sendmmsg_call_counter) {
+    if (g_sendmmsg_set___vmessages) {
+      *__vmessages = g_sendmmsg_val___vmessages;
+    }
+    return g_sendmmsg_fail_val;
+  }
+  return sendmmsg(__fd, __vmessages, __vlen, __flags);
+}
+
+void set_fail_sendmmsg(size_t start_call, size_t stop_call, int return_value) {
+  rtfun.sendmmsg = wrapped_sendmmsg;
+  g_sendmmsg_call_counter = 0;
+  g_sendmmsg_fail_start = start_call;
+  g_sendmmsg_fail_stop = stop_call;
+  g_sendmmsg_fail_val = return_value;
+}
+
+void set_val_sendmmsg___vmessages(struct mmsghdr __vmessages) {
+  g_sendmmsg_set___vmessages = true;
+  g_sendmmsg_val___vmessages = __vmessages;
+}
+
+void reset_fail_sendmmsg(void) {
+  rtfun.sendmmsg = sendmmsg;
+  g_sendmmsg_call_counter = 0;
+  g_sendmmsg_fail_start = 0;
+  g_sendmmsg_fail_stop = 0;
+  g_sendmmsg_set___vmessages = false;
+}
+/* From sys/timex.h */
+
+size_t g_ntp_adjtime_call_counter = 0;
+size_t g_ntp_adjtime_fail_start = 0;
+size_t g_ntp_adjtime_fail_stop = 0;
+bool g_ntp_adjtime_set___tntx = false;
+struct timex g_ntp_adjtime_val___tntx;
+int g_ntp_adjtime_fail_val;
+int wrapped_ntp_adjtime(struct timex * __tntx) {
+  g_ntp_adjtime_call_counter += 1;
+  if (g_ntp_adjtime_fail_start > 0
+      && g_ntp_adjtime_fail_start <= g_ntp_adjtime_call_counter
+      && g_ntp_adjtime_fail_stop >= g_ntp_adjtime_call_counter) {
+    if (g_ntp_adjtime_set___tntx) {
+      *__tntx = g_ntp_adjtime_val___tntx;
+    }
+    return g_ntp_adjtime_fail_val;
+  }
+  return ntp_adjtime(__tntx);
+}
+
+void set_fail_ntp_adjtime(size_t start_call, size_t stop_call, int return_value) {
+  rtfun.ntp_adjtime = wrapped_ntp_adjtime;
+  g_ntp_adjtime_call_counter = 0;
+  g_ntp_adjtime_fail_start = start_call;
+  g_ntp_adjtime_fail_stop = stop_call;
+  g_ntp_adjtime_fail_val = return_value;
+}
+
+void set_val_ntp_adjtime___tntx(struct timex __tntx) {
+  g_ntp_adjtime_set___tntx = true;
+  g_ntp_adjtime_val___tntx = __tntx;
+}
+
+void reset_fail_ntp_adjtime(void) {
+  rtfun.ntp_adjtime = ntp_adjtime;
+  g_ntp_adjtime_call_counter = 0;
+  g_ntp_adjtime_fail_start = 0;
+  g_ntp_adjtime_fail_stop = 0;
+  g_ntp_adjtime_set___tntx = false;
+}
+/* From ../src/roughtime_common.h */
+
+size_t g_create_roughtime_message_call_counter = 0;
+size_t g_create_roughtime_message_fail_start = 0;
+size_t g_create_roughtime_message_fail_stop = 0;
+bool g_create_roughtime_message_set_message = false;
+uint8_t g_create_roughtime_message_val_message;
+bool g_create_roughtime_message_set_size = false;
+uint32_t g_create_roughtime_message_val_size;
+roughtime_result_t g_create_roughtime_message_fail_val;
+roughtime_result_t (*g_create_roughtime_message_va_fun)(uint8_t *restrict message, uint32_t *restrict size, uint32_t num_tags, va_list va_list_arg) = NULL;
+roughtime_result_t wrapped_create_roughtime_message(uint8_t *restrict message, uint32_t *restrict size, uint32_t num_tags, ...) {
+  g_create_roughtime_message_call_counter += 1;
+  if (g_create_roughtime_message_fail_start > 0
+      && g_create_roughtime_message_fail_start <= g_create_roughtime_message_call_counter
+      && g_create_roughtime_message_fail_stop >= g_create_roughtime_message_call_counter) {
+    if (g_create_roughtime_message_set_message) {
+      *message = g_create_roughtime_message_val_message;
+    }
+    if (g_create_roughtime_message_set_size) {
+      *size = g_create_roughtime_message_val_size;
+    }
+    return g_create_roughtime_message_fail_val;
+  }
+  va_list ap;
+  va_start(ap, num_tags);
+  roughtime_result_t retval = g_create_roughtime_message_va_fun(message, size, num_tags, ap);
+  va_end(ap);
+  return retval;
+}
+
+void set_fail_create_roughtime_message(size_t start_call, size_t stop_call, roughtime_result_t return_value, roughtime_result_t (*fun)(uint8_t *restrict message, uint32_t *restrict size, uint32_t num_tags, va_list va_list_arg)) {
+  rtfun.create_roughtime_message = wrapped_create_roughtime_message;
+  g_create_roughtime_message_call_counter = 0;
+  g_create_roughtime_message_fail_start = start_call;
+  g_create_roughtime_message_fail_stop = stop_call;
+  g_create_roughtime_message_fail_val = return_value;
+  g_create_roughtime_message_va_fun = fun;
+}
+
+void set_val_create_roughtime_message_message(uint8_t message) {
+  g_create_roughtime_message_set_message = true;
+  g_create_roughtime_message_val_message = message;
+}
+
+void set_val_create_roughtime_message_size(uint32_t size) {
+  g_create_roughtime_message_set_size = true;
+  g_create_roughtime_message_val_size = size;
+}
+
+void reset_fail_create_roughtime_message(void) {
+  rtfun.create_roughtime_message = create_roughtime_message;
+  g_create_roughtime_message_call_counter = 0;
+  g_create_roughtime_message_fail_start = 0;
+  g_create_roughtime_message_fail_stop = 0;
+  g_create_roughtime_message_set_message = false;
+  g_create_roughtime_message_set_size = false;
+}
+
+size_t g_get_header_tag_call_counter = 0;
+size_t g_get_header_tag_fail_start = 0;
+size_t g_get_header_tag_fail_stop = 0;
+bool g_get_header_tag_set_offset = false;
+uint32_t g_get_header_tag_val_offset;
+bool g_get_header_tag_set_length = false;
+uint32_t g_get_header_tag_val_length;
+roughtime_result_t g_get_header_tag_fail_val;
+roughtime_result_t wrapped_get_header_tag(const roughtime_header_t *restrict header, uint32_t tag, uint32_t *restrict offset, uint32_t *restrict length) {
+  g_get_header_tag_call_counter += 1;
+  if (g_get_header_tag_fail_start > 0
+      && g_get_header_tag_fail_start <= g_get_header_tag_call_counter
+      && g_get_header_tag_fail_stop >= g_get_header_tag_call_counter) {
+    if (g_get_header_tag_set_offset) {
+      *offset = g_get_header_tag_val_offset;
+    }
+    if (g_get_header_tag_set_length) {
+      *length = g_get_header_tag_val_length;
+    }
+    return g_get_header_tag_fail_val;
+  }
+  return get_header_tag(header, tag, offset, length);
+}
+
+void set_fail_get_header_tag(size_t start_call, size_t stop_call, roughtime_result_t return_value) {
+  rtfun.get_header_tag = wrapped_get_header_tag;
+  g_get_header_tag_call_counter = 0;
+  g_get_header_tag_fail_start = start_call;
+  g_get_header_tag_fail_stop = stop_call;
+  g_get_header_tag_fail_val = return_value;
+}
+
+void set_val_get_header_tag_offset(uint32_t offset) {
+  g_get_header_tag_set_offset = true;
+  g_get_header_tag_val_offset = offset;
+}
+
+void set_val_get_header_tag_length(uint32_t length) {
+  g_get_header_tag_set_length = true;
+  g_get_header_tag_val_length = length;
+}
+
+void reset_fail_get_header_tag(void) {
+  rtfun.get_header_tag = get_header_tag;
+  g_get_header_tag_call_counter = 0;
+  g_get_header_tag_fail_start = 0;
+  g_get_header_tag_fail_stop = 0;
+  g_get_header_tag_set_offset = false;
+  g_get_header_tag_set_length = false;
+}
+
+size_t g_parse_roughtime_header_call_counter = 0;
+size_t g_parse_roughtime_header_fail_start = 0;
+size_t g_parse_roughtime_header_fail_stop = 0;
+bool g_parse_roughtime_header_set_header = false;
+roughtime_header_t g_parse_roughtime_header_val_header;
+roughtime_result_t g_parse_roughtime_header_fail_val;
+roughtime_result_t wrapped_parse_roughtime_header(const uint8_t *restrict message, uint32_t message_len, roughtime_header_t *restrict header) {
+  g_parse_roughtime_header_call_counter += 1;
+  if (g_parse_roughtime_header_fail_start > 0
+      && g_parse_roughtime_header_fail_start <= g_parse_roughtime_header_call_counter
+      && g_parse_roughtime_header_fail_stop >= g_parse_roughtime_header_call_counter) {
+    if (g_parse_roughtime_header_set_header) {
+      *header = g_parse_roughtime_header_val_header;
+    }
+    return g_parse_roughtime_header_fail_val;
+  }
+  return parse_roughtime_header(message, message_len, header);
+}
+
+void set_fail_parse_roughtime_header(size_t start_call, size_t stop_call, roughtime_result_t return_value) {
+  rtfun.parse_roughtime_header = wrapped_parse_roughtime_header;
+  g_parse_roughtime_header_call_counter = 0;
+  g_parse_roughtime_header_fail_start = start_call;
+  g_parse_roughtime_header_fail_stop = stop_call;
+  g_parse_roughtime_header_fail_val = return_value;
+}
+
+void set_val_parse_roughtime_header_header(roughtime_header_t header) {
+  g_parse_roughtime_header_set_header = true;
+  g_parse_roughtime_header_val_header = header;
+}
+
+void reset_fail_parse_roughtime_header(void) {
+  rtfun.parse_roughtime_header = parse_roughtime_header;
+  g_parse_roughtime_header_call_counter = 0;
+  g_parse_roughtime_header_fail_start = 0;
+  g_parse_roughtime_header_fail_stop = 0;
+  g_parse_roughtime_header_set_header = false;
+}
+
+size_t g_sign_call_counter = 0;
+size_t g_sign_fail_start = 0;
+size_t g_sign_fail_stop = 0;
+bool g_sign_set_signature = false;
+uint8_t g_sign_val_signature;
+roughtime_result_t g_sign_fail_val;
+roughtime_result_t wrapped_sign(const uint8_t *restrict data, uint32_t len, const uint8_t *restrict context, uint32_t context_len, uint8_t *restrict signature, const uint8_t *restrict private_key) {
+  g_sign_call_counter += 1;
+  if (g_sign_fail_start > 0
+      && g_sign_fail_start <= g_sign_call_counter
+      && g_sign_fail_stop >= g_sign_call_counter) {
+    if (g_sign_set_signature) {
+      *signature = g_sign_val_signature;
+    }
+    return g_sign_fail_val;
+  }
+  return sign(data, len, context, context_len, signature, private_key);
+}
+
+void set_fail_sign(size_t start_call, size_t stop_call, roughtime_result_t return_value) {
+  rtfun.sign = wrapped_sign;
+  g_sign_call_counter = 0;
+  g_sign_fail_start = start_call;
+  g_sign_fail_stop = stop_call;
+  g_sign_fail_val = return_value;
+}
+
+void set_val_sign_signature(uint8_t signature) {
+  g_sign_set_signature = true;
+  g_sign_val_signature = signature;
+}
+
+void reset_fail_sign(void) {
+  rtfun.sign = sign;
+  g_sign_call_counter = 0;
+  g_sign_fail_start = 0;
+  g_sign_fail_stop = 0;
+  g_sign_set_signature = false;
+}
+
+size_t g_verify_signature_call_counter = 0;
+size_t g_verify_signature_fail_start = 0;
+size_t g_verify_signature_fail_stop = 0;
+roughtime_result_t g_verify_signature_fail_val;
+roughtime_result_t wrapped_verify_signature(const uint8_t *restrict data, uint32_t len, const uint8_t *restrict context, uint32_t context_len, const uint8_t *restrict signature, const uint8_t *restrict public_key) {
+  g_verify_signature_call_counter += 1;
+  if (g_verify_signature_fail_start > 0
+      && g_verify_signature_fail_start <= g_verify_signature_call_counter
+      && g_verify_signature_fail_stop >= g_verify_signature_call_counter) {
+    return g_verify_signature_fail_val;
+  }
+  return verify_signature(data, len, context, context_len, signature, public_key);
+}
+
+void set_fail_verify_signature(size_t start_call, size_t stop_call, roughtime_result_t return_value) {
+  rtfun.verify_signature = wrapped_verify_signature;
+  g_verify_signature_call_counter = 0;
+  g_verify_signature_fail_start = start_call;
+  g_verify_signature_fail_stop = stop_call;
+  g_verify_signature_fail_val = return_value;
+}
+
+void reset_fail_verify_signature(void) {
+  rtfun.verify_signature = verify_signature;
+  g_verify_signature_call_counter = 0;
+  g_verify_signature_fail_start = 0;
+  g_verify_signature_fail_stop = 0;
+}
+/* From ../src/roughtimed.h */
+
+size_t g_sha512_256_call_counter = 0;
+size_t g_sha512_256_fail_start = 0;
+size_t g_sha512_256_fail_stop = 0;
+bool g_sha512_256_set_in = false;
+uint8_t g_sha512_256_val_in;
+bool g_sha512_256_set_out = false;
+uint8_t g_sha512_256_val_out;
+roughtime_result_t g_sha512_256_fail_val;
+roughtime_result_t wrapped_sha512_256(uint8_t * in, size_t len, uint8_t * out) {
+  g_sha512_256_call_counter += 1;
+  if (g_sha512_256_fail_start > 0
+      && g_sha512_256_fail_start <= g_sha512_256_call_counter
+      && g_sha512_256_fail_stop >= g_sha512_256_call_counter) {
+    if (g_sha512_256_set_in) {
+      *in = g_sha512_256_val_in;
+    }
+    if (g_sha512_256_set_out) {
+      *out = g_sha512_256_val_out;
+    }
+    return g_sha512_256_fail_val;
+  }
+  return sha512_256(in, len, out);
+}
+
+void set_fail_sha512_256(size_t start_call, size_t stop_call, roughtime_result_t return_value) {
+  rtfun.sha512_256 = wrapped_sha512_256;
+  g_sha512_256_call_counter = 0;
+  g_sha512_256_fail_start = start_call;
+  g_sha512_256_fail_stop = stop_call;
+  g_sha512_256_fail_val = return_value;
+}
+
+void set_val_sha512_256_in(uint8_t in) {
+  g_sha512_256_set_in = true;
+  g_sha512_256_val_in = in;
+}
+
+void set_val_sha512_256_out(uint8_t out) {
+  g_sha512_256_set_out = true;
+  g_sha512_256_val_out = out;
+}
+
+void reset_fail_sha512_256(void) {
+  rtfun.sha512_256 = sha512_256;
+  g_sha512_256_call_counter = 0;
+  g_sha512_256_fail_start = 0;
+  g_sha512_256_fail_stop = 0;
+  g_sha512_256_set_in = false;
+  g_sha512_256_set_out = false;
+}
+
+size_t g_compute_merkle_call_counter = 0;
+size_t g_compute_merkle_fail_start = 0;
+size_t g_compute_merkle_fail_stop = 0;
+bool g_compute_merkle_set_merkle = false;
+uint8_t g_compute_merkle_val_merkle;
+roughtime_result_t g_compute_merkle_fail_val;
+roughtime_result_t wrapped_compute_merkle(uint8_t * merkle, uint32_t order) {
+  g_compute_merkle_call_counter += 1;
+  if (g_compute_merkle_fail_start > 0
+      && g_compute_merkle_fail_start <= g_compute_merkle_call_counter
+      && g_compute_merkle_fail_stop >= g_compute_merkle_call_counter) {
+    if (g_compute_merkle_set_merkle) {
+      *merkle = g_compute_merkle_val_merkle;
+    }
+    return g_compute_merkle_fail_val;
+  }
+  return compute_merkle(merkle, order);
+}
+
+void set_fail_compute_merkle(size_t start_call, size_t stop_call, roughtime_result_t return_value) {
+  rtfun.compute_merkle = wrapped_compute_merkle;
+  g_compute_merkle_call_counter = 0;
+  g_compute_merkle_fail_start = start_call;
+  g_compute_merkle_fail_stop = stop_call;
+  g_compute_merkle_fail_val = return_value;
+}
+
+void set_val_compute_merkle_merkle(uint8_t merkle) {
+  g_compute_merkle_set_merkle = true;
+  g_compute_merkle_val_merkle = merkle;
+}
+
+void reset_fail_compute_merkle(void) {
+  rtfun.compute_merkle = compute_merkle;
+  g_compute_merkle_call_counter = 0;
+  g_compute_merkle_fail_start = 0;
+  g_compute_merkle_fail_stop = 0;
+  g_compute_merkle_set_merkle = false;
+}
+
+size_t g_add_queries_call_counter = 0;
+size_t g_add_queries_fail_start = 0;
+size_t g_add_queries_fail_stop = 0;
+bool g_add_queries_set_args = false;
+thread_arguments_t g_add_queries_val_args;
+bool g_add_queries_set_num_queries = false;
+int g_add_queries_val_num_queries;
+roughtime_result_t g_add_queries_fail_val;
+roughtime_result_t wrapped_add_queries(thread_arguments_t * args, const roughtime_query_t * queries, int * num_queries) {
+  g_add_queries_call_counter += 1;
+  if (g_add_queries_fail_start > 0
+      && g_add_queries_fail_start <= g_add_queries_call_counter
+      && g_add_queries_fail_stop >= g_add_queries_call_counter) {
+    if (g_add_queries_set_args) {
+      *args = g_add_queries_val_args;
+    }
+    if (g_add_queries_set_num_queries) {
+      *num_queries = g_add_queries_val_num_queries;
+    }
+    return g_add_queries_fail_val;
+  }
+  return add_queries(args, queries, num_queries);
+}
+
+void set_fail_add_queries(size_t start_call, size_t stop_call, roughtime_result_t return_value) {
+  rtfun.add_queries = wrapped_add_queries;
+  g_add_queries_call_counter = 0;
+  g_add_queries_fail_start = start_call;
+  g_add_queries_fail_stop = stop_call;
+  g_add_queries_fail_val = return_value;
+}
+
+void set_val_add_queries_args(thread_arguments_t args) {
+  g_add_queries_set_args = true;
+  g_add_queries_val_args = args;
+}
+
+void set_val_add_queries_num_queries(int num_queries) {
+  g_add_queries_set_num_queries = true;
+  g_add_queries_val_num_queries = num_queries;
+}
+
+void reset_fail_add_queries(void) {
+  rtfun.add_queries = add_queries;
+  g_add_queries_call_counter = 0;
+  g_add_queries_fail_start = 0;
+  g_add_queries_fail_stop = 0;
+  g_add_queries_set_args = false;
+  g_add_queries_set_num_queries = false;
+}
+
+size_t g_check_ver_call_counter = 0;
+size_t g_check_ver_fail_start = 0;
+size_t g_check_ver_fail_stop = 0;
+bool g_check_ver_set_buf = false;
+uint8_t g_check_ver_val_buf;
+_Bool g_check_ver_fail_val;
+_Bool wrapped_check_ver(uint8_t * buf, uint32_t offset, uint32_t length, _Bool verbose) {
+  g_check_ver_call_counter += 1;
+  if (g_check_ver_fail_start > 0
+      && g_check_ver_fail_start <= g_check_ver_call_counter
+      && g_check_ver_fail_stop >= g_check_ver_call_counter) {
+    if (g_check_ver_set_buf) {
+      *buf = g_check_ver_val_buf;
+    }
+    return g_check_ver_fail_val;
+  }
+  return check_ver(buf, offset, length, verbose);
+}
+
+void set_fail_check_ver(size_t start_call, size_t stop_call, _Bool return_value) {
+  rtfun.check_ver = wrapped_check_ver;
+  g_check_ver_call_counter = 0;
+  g_check_ver_fail_start = start_call;
+  g_check_ver_fail_stop = stop_call;
+  g_check_ver_fail_val = return_value;
+}
+
+void set_val_check_ver_buf(uint8_t buf) {
+  g_check_ver_set_buf = true;
+  g_check_ver_val_buf = buf;
+}
+
+void reset_fail_check_ver(void) {
+  rtfun.check_ver = check_ver;
+  g_check_ver_call_counter = 0;
+  g_check_ver_fail_start = 0;
+  g_check_ver_fail_stop = 0;
+  g_check_ver_set_buf = false;
+}
 
 void rtfun_reset(void) {
-  reset_fail_get_header_tag();
-  reset_fail_parse_roughtime_header();
-  reset_fail_verify_signature();
+  reset_fail_fprintf();
   reset_fail_malloc();
+  reset_fail_posix_memalign();
   reset_fail_gmtime_r();
   reset_fail_EVP_DecodeBlock();
   reset_fail_EVP_DigestSign();
@@ -629,4 +1077,15 @@ void rtfun_reset(void) {
   reset_fail_EVP_PKEY_get_raw_public_key();
   reset_fail_EVP_PKEY_new_raw_private_key();
   reset_fail_EVP_PKEY_new_raw_public_key();
+  reset_fail_sendmmsg();
+  reset_fail_ntp_adjtime();
+  reset_fail_create_roughtime_message();
+  reset_fail_get_header_tag();
+  reset_fail_parse_roughtime_header();
+  reset_fail_sign();
+  reset_fail_verify_signature();
+  reset_fail_sha512_256();
+  reset_fail_compute_merkle();
+  reset_fail_add_queries();
+  reset_fail_check_ver();
 }

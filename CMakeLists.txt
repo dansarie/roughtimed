@@ -78,7 +78,7 @@ add_custom_target(
   ${CMAKE_SOURCE_DIR}/tests/hooked_functions.json ${CLANG_RESOURCE_DIR}/include
   COMMAND cp hooks.h ${CMAKE_SOURCE_DIR}/src/
   COMMAND cp hooks.c wrappers.c wrappers.h ${CMAKE_SOURCE_DIR}/tests/
-  DEPENDS create-hooks
+  DEPENDS create-hooks tests/hooked_functions.json
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR})
 
 function(add_test_executable name)
@@ -86,13 +86,17 @@ function(add_test_executable name)
    ${name}
    src/config.c
    src/roughtime_common.c
+   src/roughtimed.c
    tests/hooks.c
    tests/test_config.c
    tests/test_roughtime.c
+   tests/test_roughtimed.c
    tests/test_roughtime_common.c
    tests/wrappers.c)
  target_link_libraries(${name} ${CHECK_LIBRARIES})
+ target_link_libraries(${name} ${CMAKE_THREAD_LIBS_INIT})
  target_link_libraries(${name} OpenSSL::SSL)
+ target_link_libraries(${name} m)
  target_compile_options(${name} PRIVATE -DTESTING)
 endfunction()
 

@@ -70,6 +70,22 @@ roughtime_result_t create_roughtime_message(
     uint32_t *restrict size,
     uint32_t num_tags,
     ...) {
+  va_list ap;
+  va_start(ap, num_tags);
+  roughtime_result_t res = create_roughtime_message_va(
+      message,
+      size,
+      num_tags,
+      ap);
+  va_end(ap);
+  return res;
+}
+
+roughtime_result_t create_roughtime_message_va(
+    uint8_t *restrict message,
+    uint32_t *restrict size,
+    uint32_t num_tags,
+    va_list ap) {
 
   if (message == NULL || size == NULL || num_tags == 0) {
     if (size != NULL) {
@@ -85,18 +101,17 @@ roughtime_result_t create_roughtime_message(
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
-  header[0] = htole32(num_tags);
+  uint32_t tmp = htole32(num_tags);
+  memcpy(header, &tmp, sizeof(uint32_t));
 
   const uint32_t header_len = num_tags * 8;
   uint32_t offset = 0;
 
-  va_list ap;
-  va_start(ap, num_tags);
-
   uint32_t last_tag = 0;
   for (uint32_t i = 0; i < num_tags; i++) {
     if (i != 0) {
-      header[i] = htole32(offset);
+      tmp = htole32(offset);
+      memcpy(header + i, &tmp, sizeof(uint32_t));
     }
     uint32_t tag = str_to_tag(va_arg(ap, char*));
     /* Fail if tags are not sorted. */
@@ -106,7 +121,8 @@ roughtime_result_t create_roughtime_message(
       return ROUGHTIME_BAD_ARGUMENT;
     }
     last_tag = tag;
-    header[num_tags + i] = htole32(tag);
+    tmp = htole32(tag);
+    memcpy(header + num_tags + i, &tmp, sizeof(uint32_t));
     uint32_t field_size = va_arg(ap, uint32_t);
     if (field_size % 4 != 0 || header_len + offset + field_size > *size) {
       va_end(ap);
@@ -118,7 +134,6 @@ roughtime_result_t create_roughtime_message(
     offset += field_size;
   }
 
-  va_end(ap);
   *size = offset + header_len;
   return ROUGHTIME_SUCCESS;
 }
@@ -132,7 +147,8 @@ roughtime_result_t parse_roughtime_header(
     return ROUGHTIME_BAD_ARGUMENT;
   }
 
-  header->num_tags = le32toh(*((uint32_t*)message));
+  memcpy(&header->num_tags, message, sizeof(uint32_t));
+  header->num_tags = le32toh(header->num_tags);
   uint32_t header_len = header->num_tags * 8;
   if (header->num_tags == 0
       || header_len > message_len
@@ -144,7 +160,11 @@ roughtime_result_t parse_roughtime_header(
     if (i == 0) {
       header->offsets[i] = header_len;
     } else {
-      header->offsets[i] = le32toh(((uint32_t*)message)[i]) + header_len;
+      memcpy(
+          &header->offsets[i],
+          message + i * sizeof(uint32_t),
+          sizeof(uint32_t));
+      header->offsets[i] = le32toh(header->offsets[i]) + header_len;
       if (header->offsets[i] % 4 != 0
           || header->offsets[i] < header->offsets[i - 1]
           || header->offsets[i] > message_len) {
@@ -152,7 +172,11 @@ roughtime_result_t parse_roughtime_header(
       }
       header->lengths[i - 1] = header->offsets[i] - header->offsets[i - 1];
     }
-    header->tags[i] = le32toh(((uint32_t*)message)[i + header->num_tags]);
+    memcpy(
+        &header->tags[i],
+        message + (i + header->num_tags) * 4,
+        sizeof(uint32_t));
+    header->tags[i] = le32toh(header->tags[i]);
     /* Check for unsorted or duplicate tags. */
     if (i > 0 && header->tags[i] <= header->tags[i - 1]) {
       return ROUGHTIME_FORMAT_ERROR;

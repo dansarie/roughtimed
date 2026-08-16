@@ -24,18 +24,21 @@
 #define _GNU_SOURCE
 #endif
 
-#include "../src/roughtime_common.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <openssl/evp.h>
+#include <sys/socket.h>
+#include <sys/timex.h>
+#include "../src/roughtime_common.h"
+#include "../src/roughtimed.h"
 
 typedef struct {
-  /* From ../src/roughtime_common.h */
-  roughtime_result_t (*get_header_tag)(const roughtime_header_t *restrict header, uint32_t tag, uint32_t *restrict offset, uint32_t *restrict length);
-  roughtime_result_t (*parse_roughtime_header)(const uint8_t *restrict message, uint32_t message_len, roughtime_header_t *restrict header);
-  roughtime_result_t (*verify_signature)(const uint8_t *restrict data, uint32_t len, const uint8_t *restrict context, uint32_t context_len, const uint8_t *restrict signature, const uint8_t *restrict public_key);
+  /* From stdio.h */
+  int (*fprintf)(FILE *restrict __stream, const char *restrict __format, ...);
   /* From stdlib.h */
   void * (*malloc)(size_t __size);
+  int (*posix_memalign)(void ** __memptr, size_t __alignment, size_t __size);
   /* From time.h */
   struct tm * (*gmtime_r)(const time_t *restrict __timer, struct tm *restrict __tp);
   /* From openssl/evp.h */
@@ -50,18 +53,32 @@ typedef struct {
   int (*EVP_PKEY_get_raw_public_key)(const EVP_PKEY * pkey, unsigned char * pub, size_t * len);
   EVP_PKEY * (*EVP_PKEY_new_raw_private_key)(int type, ENGINE * e, const unsigned char * priv, size_t len);
   EVP_PKEY * (*EVP_PKEY_new_raw_public_key)(int type, ENGINE * e, const unsigned char * pub, size_t len);
+  /* From sys/socket.h */
+  int (*sendmmsg)(int __fd, struct mmsghdr * __vmessages, unsigned int __vlen, int __flags);
+  /* From sys/timex.h */
+  int (*ntp_adjtime)(struct timex * __tntx);
+  /* From ../src/roughtime_common.h */
+  roughtime_result_t (*create_roughtime_message)(uint8_t *restrict message, uint32_t *restrict size, uint32_t num_tags, ...);
+  roughtime_result_t (*get_header_tag)(const roughtime_header_t *restrict header, uint32_t tag, uint32_t *restrict offset, uint32_t *restrict length);
+  roughtime_result_t (*parse_roughtime_header)(const uint8_t *restrict message, uint32_t message_len, roughtime_header_t *restrict header);
+  roughtime_result_t (*sign)(const uint8_t *restrict data, uint32_t len, const uint8_t *restrict context, uint32_t context_len, uint8_t *restrict signature, const uint8_t *restrict private_key);
+  roughtime_result_t (*verify_signature)(const uint8_t *restrict data, uint32_t len, const uint8_t *restrict context, uint32_t context_len, const uint8_t *restrict signature, const uint8_t *restrict public_key);
+  /* From ../src/roughtimed.h */
+  roughtime_result_t (*sha512_256)(uint8_t * in, size_t len, uint8_t * out);
+  roughtime_result_t (*compute_merkle)(uint8_t * merkle, uint32_t order);
+  roughtime_result_t (*add_queries)(thread_arguments_t * args, const roughtime_query_t * queries, int * num_queries);
+  _Bool (*check_ver)(uint8_t * buf, uint32_t offset, uint32_t length, _Bool verbose);
 } Rtfun;
 
 #ifdef TESTING
 extern Rtfun rtfun;
 #else
-const Rtfun rtfun = {
-  /* From ../src/roughtime_common.h */
-  .get_header_tag = get_header_tag,
-  .parse_roughtime_header = parse_roughtime_header,
-  .verify_signature = verify_signature,
+static const Rtfun rtfun = {
+  /* From stdio.h */
+  .fprintf = fprintf,
   /* From stdlib.h */
   .malloc = malloc,
+  .posix_memalign = posix_memalign,
   /* From time.h */
   .gmtime_r = gmtime_r,
   /* From openssl/evp.h */
@@ -75,7 +92,22 @@ const Rtfun rtfun = {
   .EVP_PKEY_CTX_new = EVP_PKEY_CTX_new,
   .EVP_PKEY_get_raw_public_key = EVP_PKEY_get_raw_public_key,
   .EVP_PKEY_new_raw_private_key = EVP_PKEY_new_raw_private_key,
-  .EVP_PKEY_new_raw_public_key = EVP_PKEY_new_raw_public_key
+  .EVP_PKEY_new_raw_public_key = EVP_PKEY_new_raw_public_key,
+  /* From sys/socket.h */
+  .sendmmsg = sendmmsg,
+  /* From sys/timex.h */
+  .ntp_adjtime = ntp_adjtime,
+  /* From ../src/roughtime_common.h */
+  .create_roughtime_message = create_roughtime_message,
+  .get_header_tag = get_header_tag,
+  .parse_roughtime_header = parse_roughtime_header,
+  .sign = sign,
+  .verify_signature = verify_signature,
+  /* From ../src/roughtimed.h */
+  .sha512_256 = sha512_256,
+  .compute_merkle = compute_merkle,
+  .add_queries = add_queries,
+  .check_ver = check_ver
 };
 #endif /* TESTING */
 

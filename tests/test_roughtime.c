@@ -25,6 +25,8 @@
 void test_config_add(Suite *s);
 /* Adds the tests defined in test_roughtime_common.c. */
 void test_roughtime_common_add(Suite *s);
+/* Adds the thests defined in test_roughtimed.c. */
+void test_roughtimed_add(Suite *s);
 
 /**
  * Creates the Roughtime test suite.
@@ -33,6 +35,7 @@ Suite* roughtime_suite(void) {
   Suite *s = suite_create("Roughtime");
   test_config_add(s);
   test_roughtime_common_add(s);
+  test_roughtimed_add(s);
   return s;
 }
 
