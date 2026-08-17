@@ -367,7 +367,7 @@ void *response_thread(void *arg) {
       msgvec[i].msg_hdr.msg_iovlen = 1;
       msgvec[i].msg_hdr.msg_control = control_buf + controllen * i;
       msgvec[i].msg_hdr.msg_controllen = controllen;
-      struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msgvec[i].msg_hdr);
+      struct cmsghdr *cmsg = (struct cmsghdr*)msgvec[i].msg_hdr.msg_control;
       cmsg->cmsg_level = IPPROTO_IPV6;
       cmsg->cmsg_type = IPV6_PKTINFO;
       cmsg->cmsg_len = CMSG_LEN(sizeof(struct in6_pktinfo));

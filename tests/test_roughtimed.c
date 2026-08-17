@@ -21,6 +21,7 @@
 
 #include <check.h>
 #include <endian.h>
+#include <errno.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -495,10 +496,25 @@ size_t g_sendmmsg_counter = 0;
 bool g_sendmmsg_err = false;
 uint8_t g_sendmmsg_msgs[15000] = {0};
 size_t g_sendmmsg_lens[10] = {0};
+size_t g_sendmmsg_failnum = 0;
+size_t g_sendmmsg_set_quit = false;
 int mock_sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int n, int flags) {
   (void)sockfd;
   (void)msgvec;
   (void)flags;
+  if (g_sendmmsg_set_quit) {
+    g_quit = true;
+  }
+  if (g_sendmmsg_err) {
+    if (g_sendmmsg_failnum > 1) {
+      g_sendmmsg_failnum -= 1;
+    } else if (g_sendmmsg_failnum == 1) {
+      g_sendmmsg_failnum = 0;
+      g_sendmmsg_err = false;
+    }
+    errno = ENONET;
+    return -1;
+  }
   g_sendmmsg_counter += n;
   for (unsigned int i = 0; i < 10 && i < n; i++) {
     g_sendmmsg_lens[i] = msgvec[i].msg_hdr.msg_iov[0].iov_len;
@@ -510,9 +526,7 @@ int mock_sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int n, int flags)
       msgvec[i].msg_hdr.msg_iov[0].iov_base,
       g_sendmmsg_lens[i]);
   }
-  if (g_sendmmsg_err) {
-    return -1;
-  }
+  errno = 0;
   return n;
 }
 
@@ -614,9 +628,10 @@ void run_response_thread(
   memset(g_sendmmsg_msgs, 0, 15000);
   memset(g_sendmmsg_lens, 0, sizeof(size_t) * 10);
   ck_assert_int_eq(pthread_create(&thread, NULL, response_thread, args), 0);
+  int num_queries_in = num_queries;
   roughtime_result_t res = add_queries(args, queries, &num_queries);
   ck_assert(res == ROUGHTIME_SUCCESS);
-  ck_assert_int_eq(num_queries, 10);
+  ck_assert_int_eq(num_queries, num_queries_in);
 
   struct timespec stime = {
     .tv_nsec = 100000000
@@ -625,6 +640,7 @@ void run_response_thread(
   g_quit = true;
   pthread_cond_signal(&args->queue_cond);
   pthread_join(thread, NULL);
+  ck_assert_uint_eq(g_sendmmsg_counter, expected_packets);
   check_packets(expected_packets);
 }
 
@@ -680,7 +696,9 @@ START_TEST(test_response_thread) {
 
   rtfun.sendmmsg = mock_sendmmsg;
   run_response_thread(&args, queries, 10, 10);
-  ck_assert_uint_eq(g_sendmmsg_counter, 10);
+  args.verbose = true;
+  run_response_thread(&args, queries, 10, 10);
+  args.verbose = false;
 
   /* Simulate errors. */
   set_fail_sha512_256(1, 1, ROUGHTIME_INTERNAL_ERROR);
@@ -690,15 +708,12 @@ START_TEST(test_response_thread) {
   set_fail_parse_roughtime_header(1, 1, ROUGHTIME_INTERNAL_ERROR);
   for (int i = 0; i < 5; i++) {
     run_response_thread(&args, queries, 10, 0);
-    ck_assert_uint_eq(g_sendmmsg_counter, 0);
   }
   set_fail_create_roughtime_message(2, 2, ROUGHTIME_INTERNAL_ERROR, create_roughtime_message_va);
   run_response_thread(&args, queries, 10, 0);
-  ck_assert_uint_eq(g_sendmmsg_counter, 0);
   for (int i = 0; i < 3; i++) {
     set_fail_get_header_tag(i + 1, i + 1, ROUGHTIME_INTERNAL_ERROR);
     run_response_thread(&args, queries, 10, 0);
-    ck_assert_uint_eq(g_sendmmsg_counter, 0);
   }
 
   int ntpret[5] = {TIME_ERROR, TIME_INS, TIME_DEL, TIME_OOP, TIME_WAIT};
@@ -706,7 +721,6 @@ START_TEST(test_response_thread) {
   for (int i = 0; i < 5; i++) {
     set_fail_ntp_adjtime(1, 1, ntpret[i]);
     run_response_thread(&args, queries, 10, 10);
-    ck_assert_uint_eq(g_sendmmsg_counter, 10);
     for (int j = 0; j < 10; j++) {
       roughtime_header_t header = {0};
       roughtime_header_t srep_header = {0};
@@ -729,6 +743,29 @@ START_TEST(test_response_thread) {
       ck_assert_uint_gt(radi, expected_radi[i] - 1);
     }
   }
+
+  pthread_t thread = {0};
+  g_quit = false;
+  ck_assert_int_eq(pthread_create(&thread, NULL, response_thread, &args), 0);
+  struct timespec stime = {
+    .tv_nsec = 100000000
+  };
+  nanosleep(&stime, NULL);
+  pthread_cond_signal(&args.queue_cond);
+  nanosleep(&stime, NULL);
+  g_quit = true;
+  pthread_cond_signal(&args.queue_cond);
+  pthread_join(thread, NULL);
+
+  g_sendmmsg_failnum = 1;
+  g_sendmmsg_err = true;
+  run_response_thread(&args, queries, 10, 10);
+  g_sendmmsg_failnum = 2;
+  g_sendmmsg_err = true;
+  run_response_thread(&args, queries, 10, 0);
+  g_sendmmsg_set_quit = true;
+  g_sendmmsg_err = true;
+  run_response_thread(&args, queries, 10, 0);
 
   free(args.queue);
   free(queries);
